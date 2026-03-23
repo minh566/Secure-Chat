@@ -1,0 +1,69 @@
+// firestore.rules
+// Deploy: firebase deploy --only firestore:rules
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ───────────────────────────────────────────────────
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return request.auth.uid == uid;
+    }
+
+    function isMember(roomData) {
+      return request.auth.uid in roomData.members;
+    }
+
+    // ── Users collection ───────────────────────────────────────────────────
+    match /users/{userId} {
+      // Đọc: bất kỳ user đã đăng nhập nào
+      allow read: if isAuthenticated();
+      // Ghi: chỉ chủ sở hữu mới được sửa profile của mình
+      allow write: if isOwner(userId);
+    }
+
+    // ── Rooms collection ───────────────────────────────────────────────────
+    match /rooms/{roomId} {
+      // Đọc room: phải là thành viên
+      allow read: if isAuthenticated() && isMember(resource.data);
+      // Tạo room: bất kỳ user đã đăng nhập
+      allow create: if isAuthenticated() &&
+                       request.auth.uid in request.resource.data.members;
+      // Cập nhật room (lastMessage, unreadCount): phải là thành viên
+      allow update: if isAuthenticated() && isMember(resource.data);
+
+      // ── Messages subcollection ─────────────────────────────────────────
+      match /messages/{messageId} {
+        // Đọc và ghi tin nhắn: phải là thành viên của room cha
+        allow read, write: if isAuthenticated() &&
+                              isMember(get(/databases/$(database)/documents/rooms/$(roomId)).data);
+      }
+    }
+
+    // ── Calls collection ───────────────────────────────────────────────────
+    match /calls/{sessionId} {
+      // Đọc: caller hoặc callee
+      allow read: if isAuthenticated() &&
+                     (request.auth.uid == resource.data.callerId ||
+                      request.auth.uid == resource.data.calleeId);
+      // Tạo call: phải là caller
+      allow create: if isAuthenticated() &&
+                       request.auth.uid == request.resource.data.callerId;
+      // Cập nhật status, offer, answer: caller hoặc callee
+      allow update: if isAuthenticated() &&
+                       (request.auth.uid == resource.data.callerId ||
+                        request.auth.uid == resource.data.calleeId);
+
+      // ICE candidates subcollection
+      match /iceCandidates/{candidateId} {
+        allow read, write: if isAuthenticated() &&
+                              (request.auth.uid == get(/databases/$(database)/documents/calls/$(sessionId)).data.callerId ||
+                               request.auth.uid == get(/databases/$(database)/documents/calls/$(sessionId)).data.calleeId);
+      }
+    }
+  }
+}
