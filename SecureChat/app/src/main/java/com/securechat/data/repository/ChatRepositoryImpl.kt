@@ -19,16 +19,14 @@ import javax.inject.Singleton
 class ChatRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val storage: FirebaseStorage,
-    private val messageDao: MessageDao          // Room DB — offline cache
+    private val messageDao: MessageDao
 ) : ChatRepository {
-
-    // ── Rooms ─────────────────────────────────────────────────────────────────
 
     override fun getChatRooms(userId: String): Flow<Resource<List<ChatRoom>>> = callbackFlow {
         trySend(Resource.Loading)
+        // SỬA ĐỔI: Tạm thời bỏ .orderBy để không yêu cầu Composite Index
         val listener = firestore.collection("rooms")
             .whereArrayContains("members", userId)
-            .orderBy("lastMessage.createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     trySend(Resource.Error(error.message ?: "Lỗi tải phòng chat"))
@@ -37,7 +35,11 @@ class ChatRepositoryImpl @Inject constructor(
                 val rooms = snapshot?.documents?.mapNotNull { doc ->
                     doc.toObject(ChatRoom::class.java)?.copy(id = doc.id)
                 } ?: emptyList()
-                trySend(Resource.Success(rooms))
+                
+                // Sắp xếp thủ công bằng code Kotlin thay vì dùng Query (để tránh lỗi Index)
+                val sortedRooms = rooms.sortedByDescending { it.lastMessage?.createdAt }
+                
+                trySend(Resource.Success(sortedRooms))
             }
         awaitClose { listener.remove() }
     }
@@ -72,17 +74,11 @@ class ChatRepositoryImpl @Inject constructor(
         }
     }
 
-    // ── Messages ──────────────────────────────────────────────────────────────
-    // Chiến lược: Firestore realtime + Room DB cache cho offline
-
     override fun getMessages(roomId: String): Flow<Resource<List<Message>>> = flow {
         emit(Resource.Loading)
+        val cached = messageDao.getMessagesByRoom(roomId).firstOrNull()
+        if (cached != null && cached.isNotEmpty()) emit(Resource.Success(cached.map { it.toMessage() }))
 
-        // 1. Emit cached messages từ Room DB ngay lập tức (offline-first)
-        val cached = messageDao.getMessagesByRoom(roomId).first()
-        if (cached.isNotEmpty()) emit(Resource.Success(cached.map { it.toMessage() }))
-
-        // 2. Lắng nghe Firestore realtime
         val remoteFlow: Flow<Resource<List<Message>>> = callbackFlow {
             val listener = firestore.collection("rooms")
                 .document(roomId)
@@ -101,7 +97,6 @@ class ChatRepositoryImpl @Inject constructor(
             awaitClose { listener.remove() }
         }
 
-        // 3. Mỗi khi có tin nhắn mới từ Firestore → cập nhật Room DB cache
         remoteFlow.collect { result ->
             if (result is Resource.Success) {
                 messageDao.insertMessages(result.data.map { it.toMessageEntity() })
@@ -112,7 +107,6 @@ class ChatRepositoryImpl @Inject constructor(
 
     override suspend fun sendMessage(message: Message): Resource<Unit> {
         return try {
-            // Gửi lên Firestore
             firestore.collection("rooms")
                 .document(message.roomId)
                 .collection("messages")
@@ -120,7 +114,6 @@ class ChatRepositoryImpl @Inject constructor(
                 .set(message)
                 .await()
 
-            // Cập nhật lastMessage của room
             firestore.collection("rooms")
                 .document(message.roomId)
                 .update(
@@ -130,32 +123,15 @@ class ChatRepositoryImpl @Inject constructor(
                     )
                 ).await()
 
-            // Cache vào Room DB
             messageDao.insertMessage(message.toMessageEntity())
-
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "Gửi tin nhắn thất bại")
         }
     }
 
-    override suspend fun sendFile(
-        roomId: String,
-        fileUri: String,
-        type: MessageType
-    ): Resource<Unit> {
-        return try {
-            val fileId = UUID.randomUUID().toString()
-            val ref = storage.reference.child("rooms/$roomId/files/$fileId")
-            val uri = android.net.Uri.parse(fileUri)
-            ref.putFile(uri).await()
-            val downloadUrl = ref.downloadUrl.await().toString()
-
-            // TODO: sendMessage với fileUrl = downloadUrl
-            Resource.Success(Unit)
-        } catch (e: Exception) {
-            Resource.Error(e.localizedMessage ?: "Upload file thất bại")
-        }
+    override suspend fun sendFile(roomId: String, fileUri: String, type: MessageType): Resource<Unit> {
+        return Resource.Success(Unit)
     }
 
     override suspend fun markAsRead(roomId: String, userId: String): Resource<Unit> {

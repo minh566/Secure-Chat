@@ -128,19 +128,32 @@ fun HomeScreen(
                 onDismissRequest = viewModel::dismissCreateDialog,
                 title   = { Text("Tạo phòng chat mới") },
                 text    = {
-                    OutlinedTextField(
-                        value = uiState.newRoomName,
-                        onValueChange = viewModel::onNewRoomNameChange,
-                        label = { Text("Tên phòng") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Column {
+                        OutlinedTextField(
+                            value = uiState.newRoomName,
+                            onValueChange = viewModel::onNewRoomNameChange,
+                            label = { Text("Tên phòng") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (uiState.errorMessage != null) {
+                            Text(
+                                text = uiState.errorMessage!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
                 },
                 confirmButton = {
                     TextButton(
                         onClick  = viewModel::createRoom,
-                        enabled  = uiState.newRoomName.isNotBlank()
-                    ) { Text("Tạo") }
+                        enabled  = uiState.newRoomName.isNotBlank() && !uiState.isCreating
+                    ) { 
+                        if (uiState.isCreating) CircularProgressIndicator(Modifier.size(16.dp))
+                        else Text("Tạo") 
+                    }
                 },
                 dismissButton = {
                     TextButton(onClick = viewModel::dismissCreateDialog) { Text("Hủy") }
@@ -169,14 +182,18 @@ private fun RoomItem(room: ChatRoom, onClick: () -> Unit) {
             )
         },
         leadingContent = {
-            Badge(
-                containerColor = MaterialTheme.colorScheme.primary
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(40.dp)
             ) {
-                Text(
-                    text = room.name.take(2).uppercase(),
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(4.dp)
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = room.name.take(1).uppercase(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
             }
         },
         trailingContent = {

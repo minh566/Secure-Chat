@@ -18,7 +18,8 @@ data class HomeUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val showCreateDialog: Boolean = false,
-    val newRoomName: String = ""
+    val newRoomName: String = "",
+    val isCreating: Boolean = false
 )
 
 @HiltViewModel
@@ -34,18 +35,20 @@ class HomeViewModel @Inject constructor(
 
     val currentUser get() = authRepository.currentUser
 
-    init { loadRooms() }
+    init {
+        loadRooms()
+    }
 
     private fun loadRooms() {
-        val uid = authRepository.currentUser?.uid ?: return
+        val user = authRepository.currentUser ?: return
         viewModelScope.launch {
-            getChatRoomsUseCase(uid).collect { result ->
+            getChatRoomsUseCase(user.uid).collect { result ->
                 when (result) {
                     is Resource.Loading -> _uiState.update { it.copy(isLoading = true) }
                     is Resource.Success -> _uiState.update {
-                        it.copy(isLoading = false, rooms = result.data)
+                        it.copy(isLoading = false, rooms = result.data, errorMessage = null)
                     }
-                    is Resource.Error   -> _uiState.update {
+                    is Resource.Error -> _uiState.update {
                         it.copy(isLoading = false, errorMessage = result.message)
                     }
                 }
@@ -54,23 +57,37 @@ class HomeViewModel @Inject constructor(
     }
 
     fun onNewRoomNameChange(name: String) = _uiState.update { it.copy(newRoomName = name) }
-    fun showCreateDialog()  = _uiState.update { it.copy(showCreateDialog = true) }
+    fun showCreateDialog() = _uiState.update { it.copy(showCreateDialog = true) }
     fun dismissCreateDialog() = _uiState.update { it.copy(showCreateDialog = false, newRoomName = "") }
 
     fun createRoom() {
         val name = _uiState.value.newRoomName.trim()
-        val uid  = authRepository.currentUser?.uid ?: return
+        val user = authRepository.currentUser ?: return
         if (name.isBlank()) return
+
         viewModelScope.launch {
-            dismissCreateDialog()
-            createRoomUseCase(name, listOf(uid), false)
+            _uiState.update { it.copy(isCreating = true) }
+            val result = createRoomUseCase(name, listOf(user.uid), false)
+            _uiState.update { it.copy(isCreating = false) }
+            
+            if (result is Resource.Success) {
+                dismissCreateDialog()
+                // Danh sách sẽ tự cập nhật nhờ collect GetChatRoomsUseCase
+            } else if (result is Resource.Error) {
+                _uiState.update { it.copy(errorMessage = result.message) }
+            }
         }
     }
 
     fun signOut(onDone: () -> Unit) {
         viewModelScope.launch {
-            signOutUseCase()
-            onDone()
+            try {
+                signOutUseCase()
+                onDone()
+            } catch (e: Exception) {
+                // Nếu lỗi Firestore offline vẫn ép đăng xuất ở local
+                onDone()
+            }
         }
     }
 }
