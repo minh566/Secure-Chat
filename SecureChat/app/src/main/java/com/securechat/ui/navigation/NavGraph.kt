@@ -9,53 +9,44 @@ import com.securechat.ui.screens.auth.RegisterScreen
 import com.securechat.ui.screens.call.VideoCallScreen
 import com.securechat.ui.screens.chat.ChatScreen
 import com.securechat.ui.screens.home.HomeScreen
+import com.securechat.ui.screens.contact.ContactListScreen
+import com.securechat.ui.screens.settings.SettingsScreen
+import com.securechat.ui.screens.splash.SplashScreen
 
 sealed class Screen(val route: String) {
+    data object Splash   : Screen("splash")
     data object Login    : Screen("login")
     data object Register : Screen("register")
     data object Home     : Screen("home")
-
+    data object Contacts : Screen("contacts")
+    data object Settings : Screen("settings")
+    
     data object Chat : Screen("chat/{roomId}/{roomName}") {
         fun go(roomId: String, roomName: String) =
             "chat/$roomId/${java.net.URLEncoder.encode(roomName, "UTF-8")}"
     }
 
-    data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}") {
-        fun go(sessionId: String, calleeName: String, isCaller: Boolean) =
-            "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller"
+    data object Call : Screen("call/{calleeName}") {
+        fun go(calleeName: String) = "call/${java.net.URLEncoder.encode(calleeName, "UTF-8")}"
     }
 }
 
 @Composable
 fun SecureChatNavGraph(
-    navController: NavHostController = rememberNavController(),
+    navController: NavHostController,
     startDestination: String,
     authRepository: AuthRepository
 ) {
     NavHost(
-        navController    = navController,
-        startDestination = startDestination
+        navController = navController,
+        startDestination = Screen.Splash.route
     ) {
-        composable(Screen.Login.route) {
-            LoginScreen(
-                onNavigateToRegister = { navController.navigate(Screen.Register.route) },
-                onLoginSuccess = {
-                    navController.navigate(Screen.Home.route) {
-                        popUpTo(Screen.Login.route) { inclusive = true }
-                    }
+        composable(Screen.Splash.route) {
+            SplashScreen(onAnimationFinished = {
+                navController.navigate(Screen.Home.route) {
+                    popUpTo(Screen.Splash.route) { inclusive = true }
                 }
-            )
-        }
-
-        composable(Screen.Register.route) {
-            RegisterScreen(
-                onNavigateToLogin = { navController.popBackStack() },
-                onRegisterSuccess = {
-                    navController.navigate(Screen.Home.route) {
-                        popUpTo(Screen.Login.route) { inclusive = true }
-                    }
-                }
-            )
+            })
         }
 
         composable(Screen.Home.route) {
@@ -63,11 +54,30 @@ fun SecureChatNavGraph(
                 onOpenChat = { roomId, roomName ->
                     navController.navigate(Screen.Chat.go(roomId, roomName))
                 },
+                onNavigateToContacts = { navController.navigate(Screen.Contacts.route) },
+                onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
                 onSignedOut = {
-                    // SỬA ĐỔI: Xóa toàn bộ stack để không quay lại được Home sau logout
-                    navController.navigate(Screen.Login.route) {
-                        popUpTo(0) { inclusive = true }
+                    navController.navigate(Screen.Login.route) { popUpTo(0) }
+                }
+            )
+        }
+
+        composable(Screen.Contacts.route) {
+            ContactListScreen(
+                onBack = { navController.popBackStack() },
+                onStartChat = { roomId, roomName ->
+                    navController.navigate(Screen.Chat.go(roomId, roomName)) {
+                        popUpTo(Screen.Home.route) { inclusive = false }
                     }
+                }
+            )
+        }
+
+        composable(Screen.Settings.route) {
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onSignedOut = {
+                    navController.navigate(Screen.Login.route) { popUpTo(0) }
                 }
             )
         }
@@ -75,38 +85,30 @@ fun SecureChatNavGraph(
         composable(
             route = Screen.Chat.route,
             arguments = listOf(
-                navArgument("roomId")   { type = NavType.StringType },
+                navArgument("roomId") { type = NavType.StringType },
                 navArgument("roomName") { type = NavType.StringType }
             )
         ) { backStackEntry ->
-            val roomId   = backStackEntry.arguments?.getString("roomId") ?: ""
-            val roomNameRaw = backStackEntry.arguments?.getString("roomName") ?: ""
-            val roomName = java.net.URLDecoder.decode(roomNameRaw, "UTF-8")
-
+            val roomName = java.net.URLDecoder.decode(
+                backStackEntry.arguments?.getString("roomName") ?: "Chat", "UTF-8"
+            )
             ChatScreen(
                 roomName = roomName,
-                onBack   = { navController.popBackStack() },
-                onStartVideoCall = {
-                    val sessionId = java.util.UUID.randomUUID().toString()
-                    navController.navigate(Screen.Call.go(sessionId, roomName, true))
-                },
+                onBack = { navController.popBackStack() },
+                onStartVideoCall = { navController.navigate(Screen.Call.go(roomName)) },
                 authRepository = authRepository
             )
         }
 
         composable(
             route = Screen.Call.route,
-            arguments = listOf(
-                navArgument("sessionId")  { type = NavType.StringType },
-                navArgument("calleeName") { type = NavType.StringType },
-                navArgument("isCaller")   { type = NavType.BoolType }
-            )
+            arguments = listOf(navArgument("calleeName") { type = NavType.StringType })
         ) { backStackEntry ->
-            val calleeNameRaw = backStackEntry.arguments?.getString("calleeName") ?: ""
-            val calleeName = java.net.URLDecoder.decode(calleeNameRaw, "UTF-8")
-
+            val calleeName = java.net.URLDecoder.decode(
+                backStackEntry.arguments?.getString("calleeName") ?: "User", "UTF-8"
+            )
             VideoCallScreen(
-                calleeName  = calleeName,
+                calleeName = calleeName,
                 onCallEnded = { navController.popBackStack() }
             )
         }
