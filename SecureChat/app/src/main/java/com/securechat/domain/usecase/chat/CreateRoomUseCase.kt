@@ -13,7 +13,7 @@ class CreateRoomUseCase @Inject constructor(
         memberIds: List<String>,
         isGroup: Boolean
     ): Resource<ChatRoom> {
-        if (memberIds.size < 2) return Resource.Error("Cần ít nhất 2 thành viên")
+        if (memberIds.isEmpty()) return Resource.Error("Cần ít nhất 1 thành viên")
         return chatRepository.createRoom(name, memberIds, isGroup)
     }
 }

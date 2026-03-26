@@ -58,11 +58,22 @@ service cloud.firestore {
                        (request.auth.uid == resource.data.callerId ||
                         request.auth.uid == resource.data.calleeId);
 
-      // ICE candidates subcollection
+      // ── ICE candidates (legacy flat structure) ─────────────────────────
       match /iceCandidates/{candidateId} {
         allow read, write: if isAuthenticated() &&
                               (request.auth.uid == get(/databases/$(database)/documents/calls/$(sessionId)).data.callerId ||
                                request.auth.uid == get(/databases/$(database)/documents/calls/$(sessionId)).data.calleeId);
+      }
+
+      // ── ICE candidates (role-scoped structure) ─────────────────────────
+      // Separate collections for caller and callee roles to avoid candidate noise
+      match /iceCandidates/{role}/items/{itemId} {
+        allow read: if isAuthenticated() &&
+                       (request.auth.uid == get(/databases/$(database)/documents/calls/$(sessionId)).data.callerId ||
+                        request.auth.uid == get(/databases/$(database)/documents/calls/$(sessionId)).data.calleeId);
+        allow write: if isAuthenticated() &&
+                        (request.auth.uid == get(/databases/$(database)/documents/calls/$(sessionId)).data.callerId ||
+                         request.auth.uid == get(/databases/$(database)/documents/calls/$(sessionId)).data.calleeId);
       }
     }
   }

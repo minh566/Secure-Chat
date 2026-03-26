@@ -28,6 +28,11 @@ class CallRepositoryImpl @Inject constructor(
 
     private val callsRef get() = firestore.collection("calls")
 
+    private fun roleIceRef(sessionId: String, role: String) = callsRef.document(sessionId)
+        .collection("iceCandidates")
+        .document(role)
+        .collection("items")
+
     // ── Lắng nghe cuộc gọi đến ───────────────────────────────────────────────
     override fun observeIncomingCall(userId: String): Flow<CallSession?> = callbackFlow {
         val listener = callsRef
@@ -76,6 +81,18 @@ class CallRepositoryImpl @Inject constructor(
         } catch (e: Exception) { Resource.Error(e.localizedMessage ?: "Lỗi") }
     }
 
+    override fun observeCallStatus(sessionId: String): Flow<CallStatus?> = callbackFlow {
+        val listener = callsRef.document(sessionId)
+            .addSnapshotListener { snap, _ ->
+                val raw = snap?.getString("status")
+                val status = raw?.let { value ->
+                    runCatching { CallStatus.valueOf(value) }.getOrNull()
+                }
+                trySend(status)
+            }
+        awaitClose { listener.remove() }
+    }.distinctUntilChanged()
+
     // ── WebRTC Signaling: SDP Offer ───────────────────────────────────────────
     override suspend fun sendOffer(sessionId: String, sdp: String): Resource<Unit> {
         return try {
@@ -115,25 +132,37 @@ class CallRepositoryImpl @Inject constructor(
     }
 
     // ── WebRTC Signaling: ICE Candidates ─────────────────────────────────────
-    override suspend fun sendIceCandidate(sessionId: String, candidate: String): Resource<Unit> {
+    override suspend fun sendIceCandidate(sessionId: String, role: String, candidate: String): Resource<Unit> {
         return try {
-            // Append vào array trong Firestore
-            callsRef.document(sessionId)
-                .collection("iceCandidates")
+            roleIceRef(sessionId, role)
                 .add(mapOf("candidate" to candidate)).await()
             Resource.Success(Unit)
         } catch (e: Exception) { Resource.Error(e.localizedMessage ?: "Lỗi gửi ICE") }
     }
 
-    override fun observeIceCandidates(sessionId: String): Flow<List<String>> = callbackFlow {
-        val listener = callsRef.document(sessionId)
-            .collection("iceCandidates")
-            .addSnapshotListener { snap, _ ->
-                val candidates = snap?.documents?.mapNotNull {
-                    it.getString("candidate")
-                } ?: emptyList()
-                trySend(candidates)
-            }
-        awaitClose { listener.remove() }
+    override fun observeIceCandidates(sessionId: String, role: String): Flow<List<String>> {
+        val roleFlow = callbackFlow {
+            val listener = roleIceRef(sessionId, role)
+                .addSnapshotListener { snap, _ ->
+                    val candidates = snap?.documents?.mapNotNull { it.getString("candidate") } ?: emptyList()
+                    trySend(candidates)
+                }
+            awaitClose { listener.remove() }
+        }
+
+        // Legacy fallback while old clients still write to the flat collection.
+        val legacyFlow = callbackFlow {
+            val listener = callsRef.document(sessionId)
+                .collection("iceCandidates")
+                .addSnapshotListener { snap, _ ->
+                    val candidates = snap?.documents?.mapNotNull { it.getString("candidate") } ?: emptyList()
+                    trySend(candidates)
+                }
+            awaitClose { listener.remove() }
+        }
+
+        return combine(roleFlow, legacyFlow) { roleCandidates, legacyCandidates ->
+            (roleCandidates + legacyCandidates).distinct()
+        }.distinctUntilChanged()
     }
 }

@@ -1,5 +1,6 @@
 package com.securechat.data.repository
 
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
@@ -8,6 +9,7 @@ import com.securechat.data.mapper.toMessage
 import com.securechat.data.mapper.toMessageEntity
 import com.securechat.domain.model.*
 import com.securechat.domain.repository.ChatRepository
+import com.securechat.domain.repository.UserRepository
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
@@ -19,12 +21,12 @@ import javax.inject.Singleton
 class ChatRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val storage: FirebaseStorage,
-    private val messageDao: MessageDao
+    private val messageDao: MessageDao,
+    private val userRepository: UserRepository
 ) : ChatRepository {
 
     override fun getChatRooms(userId: String): Flow<Resource<List<ChatRoom>>> = callbackFlow {
         trySend(Resource.Loading)
-        // SỬA ĐỔI: Tạm thời bỏ .orderBy để không yêu cầu Composite Index
         val listener = firestore.collection("rooms")
             .whereArrayContains("members", userId)
             .addSnapshotListener { snapshot, error ->
@@ -33,12 +35,12 @@ class ChatRepositoryImpl @Inject constructor(
                     return@addSnapshotListener
                 }
                 val rooms = snapshot?.documents?.mapNotNull { doc ->
-                    doc.toObject(ChatRoom::class.java)?.copy(id = doc.id)
+                    runCatching {
+                        doc.toObject(ChatRoom::class.java)?.copy(id = doc.id)
+                    }.getOrNull()
                 } ?: emptyList()
                 
-                // Sắp xếp thủ công bằng code Kotlin thay vì dùng Query (để tránh lỗi Index)
                 val sortedRooms = rooms.sortedByDescending { it.lastMessage?.createdAt }
-                
                 trySend(Resource.Success(sortedRooms))
             }
         awaitClose { listener.remove() }
@@ -50,10 +52,23 @@ class ChatRepositoryImpl @Inject constructor(
         isGroup: Boolean
     ): Resource<ChatRoom> {
         return try {
+            val names = mutableMapOf<String, String>()
+            val photos = mutableMapOf<String, String>()
+            
+            for (id in memberIds) {
+                val userResult = userRepository.getUser(id)
+                if (userResult is Resource.Success) {
+                    names[id] = userResult.data.displayName
+                    photos[id] = userResult.data.photoUrl ?: ""
+                }
+            }
+
             val room = ChatRoom(
                 id       = UUID.randomUUID().toString(),
                 name     = name,
                 members  = memberIds,
+                memberNames = names,
+                memberPhotos = photos,
                 isGroup  = isGroup
             )
             firestore.collection("rooms").document(room.id).set(room).await()
@@ -66,8 +81,9 @@ class ChatRepositoryImpl @Inject constructor(
     override suspend fun getChatRoom(roomId: String): Resource<ChatRoom> {
         return try {
             val doc = firestore.collection("rooms").document(roomId).get().await()
-            val room = doc.toObject(ChatRoom::class.java)?.copy(id = doc.id)
-                ?: return Resource.Error("Không tìm thấy phòng")
+            val room = runCatching {
+                doc.toObject(ChatRoom::class.java)?.copy(id = doc.id)
+            }.getOrNull() ?: return Resource.Error("Không tìm thấy phòng hoặc dữ liệu phòng không hợp lệ")
             Resource.Success(room)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "Lỗi tải phòng")
@@ -107,31 +123,81 @@ class ChatRepositoryImpl @Inject constructor(
 
     override suspend fun sendMessage(message: Message): Resource<Unit> {
         return try {
+            val normalizedMessage = message.copy(
+                deliveredTo = (message.deliveredTo + message.senderId).distinct(),
+                seenBy = (message.seenBy + message.senderId).distinct()
+            )
+
             firestore.collection("rooms")
-                .document(message.roomId)
+                .document(normalizedMessage.roomId)
                 .collection("messages")
-                .document(message.id)
-                .set(message)
+                .document(normalizedMessage.id)
+                .set(normalizedMessage)
                 .await()
 
             firestore.collection("rooms")
-                .document(message.roomId)
+                .document(normalizedMessage.roomId)
                 .update(
                     mapOf(
-                        "lastMessage" to message,
-                        "lastMessage.createdAt" to message.createdAt
+                        "lastMessage" to normalizedMessage,
+                        "lastMessage.createdAt" to normalizedMessage.createdAt
                     )
                 ).await()
 
-            messageDao.insertMessage(message.toMessageEntity())
+            messageDao.insertMessage(normalizedMessage.toMessageEntity())
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "Gửi tin nhắn thất bại")
         }
     }
 
+    // THỰC HIỆN HÀM XÓA TIN NHẮN
+    override suspend fun deleteMessage(roomId: String, messageId: String): Resource<Unit> {
+        return try {
+            // Xóa trên Firestore
+            firestore.collection("rooms")
+                .document(roomId)
+                .collection("messages")
+                .document(messageId)
+                .delete()
+                .await()
+
+            // Xóa ở Local Database (Room)
+            messageDao.deleteMessage(messageId)
+            
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "Xóa tin nhắn thất bại")
+        }
+    }
+
     override suspend fun sendFile(roomId: String, fileUri: String, type: MessageType): Resource<Unit> {
         return Resource.Success(Unit)
+    }
+
+    override suspend fun deleteChatRoom(roomId: String): Resource<Unit> {
+        return try {
+            val roomRef = firestore.collection("rooms").document(roomId)
+            val messagesRef = roomRef.collection("messages")
+            val batchSize = 200L
+
+            while (true) {
+                val snapshot = messagesRef.limit(batchSize).get().await()
+                if (snapshot.isEmpty) break
+
+                val batch = firestore.batch()
+                snapshot.documents.forEach { doc -> batch.delete(doc.reference) }
+                batch.commit().await()
+
+                if (snapshot.size() < batchSize.toInt()) break
+            }
+
+            roomRef.delete().await()
+            messageDao.deleteRoomMessages(roomId)
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "Xóa phòng chat thất bại")
+        }
     }
 
     override suspend fun markAsRead(roomId: String, userId: String): Resource<Unit> {
@@ -143,6 +209,62 @@ class ChatRepositoryImpl @Inject constructor(
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "Lỗi đánh dấu đã đọc")
+        }
+    }
+
+    override suspend fun markMessagesDelivered(roomId: String, userId: String): Resource<Unit> {
+        return updateMessageReceipt(roomId, userId, isSeen = false)
+    }
+
+    override suspend fun markMessagesSeen(roomId: String, userId: String): Resource<Unit> {
+        return updateMessageReceipt(roomId, userId, isSeen = true)
+    }
+
+    private suspend fun updateMessageReceipt(roomId: String, userId: String, isSeen: Boolean): Resource<Unit> {
+        return try {
+            val roomRef = firestore.collection("rooms").document(roomId)
+            val snapshot = roomRef.collection("messages")
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(100)
+                .get()
+                .await()
+
+            val docsToUpdate = snapshot.documents.filter { doc ->
+                val senderId = doc.getString("senderId")
+                val delivered = (doc.get("deliveredTo") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                val seen = (doc.get("seenBy") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                senderId != null && senderId != userId && (userId !in delivered || (isSeen && userId !in seen))
+            }
+
+            if (docsToUpdate.isNotEmpty()) {
+                val batch = firestore.batch()
+                docsToUpdate.forEach { doc ->
+                    batch.update(doc.reference, "deliveredTo", FieldValue.arrayUnion(userId))
+                    if (isSeen) {
+                        batch.update(doc.reference, "seenBy", FieldValue.arrayUnion(userId))
+                        batch.update(doc.reference, "isRead", true)
+                    }
+                }
+                batch.commit().await()
+            }
+
+            val roomDoc = roomRef.get().await()
+            val lastMessageDoc = roomDoc.get("lastMessage") as? Map<*, *>
+            val lastSenderId = lastMessageDoc?.get("senderId") as? String
+            if (lastSenderId != null && lastSenderId != userId) {
+                val roomUpdates = mutableMapOf<String, Any>(
+                    "lastMessage.deliveredTo" to FieldValue.arrayUnion(userId)
+                )
+                if (isSeen) {
+                    roomUpdates["lastMessage.seenBy"] = FieldValue.arrayUnion(userId)
+                    roomUpdates["lastMessage.isRead"] = true
+                }
+                roomRef.update(roomUpdates).await()
+            }
+
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "Lỗi cập nhật trạng thái tin nhắn")
         }
     }
 }

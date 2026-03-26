@@ -19,14 +19,13 @@ class UserRepositoryImpl @Inject constructor(
 
     private val usersRef get() = firestore.collection("users")
 
-    // Tìm kiếm user theo displayName (Firestore không có full-text search —
-    // dùng prefix query là workaround phổ biến)
+    // Tìm kiếm user theo displayName
     override fun searchUsers(query: String): Flow<Resource<List<User>>> = callbackFlow {
         trySend(Resource.Loading)
         val listener = usersRef
             .orderBy("displayName")
             .startAt(query)
-            .endAt(query + "\uf8ff")   // trick để làm prefix search
+            .endAt(query + "\uf8ff")
             .limit(20)
             .addSnapshotListener { snap, error ->
                 if (error != null) {
@@ -35,7 +34,26 @@ class UserRepositoryImpl @Inject constructor(
                 }
                 val users = snap?.documents
                     ?.mapNotNull { it.toObject(User::class.java)?.copy(uid = it.id) }
-                    ?.filter { it.uid != firebaseAuth.currentUser?.uid } // bỏ bản thân
+                    ?.filter { it.uid != firebaseAuth.currentUser?.uid }
+                    ?: emptyList()
+                trySend(Resource.Success(users))
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // THỰC HIỆN HÀM LẤY DANH SÁCH BẠN BÈ ĐANG ONLINE
+    override fun getActiveUsers(): Flow<Resource<List<User>>> = callbackFlow {
+        trySend(Resource.Loading)
+        val listener = usersRef
+            .whereEqualTo("isOnline", true)
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    trySend(Resource.Error(error.message ?: "Lỗi tải danh sách online"))
+                    return@addSnapshotListener
+                }
+                val users = snap?.documents
+                    ?.mapNotNull { it.toObject(User::class.java)?.copy(uid = it.id) }
+                    ?.filter { it.uid != firebaseAuth.currentUser?.uid }
                     ?: emptyList()
                 trySend(Resource.Success(users))
             }

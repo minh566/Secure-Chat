@@ -18,10 +18,12 @@ data class ChatRoom(
     val id: String = "",
     val name: String = "",
     val members: List<String> = emptyList(),     // list of UIDs
+    val memberNames: Map<String, String> = emptyMap(), // UID -> DisplayName
+    val memberPhotos: Map<String, String> = emptyMap(), // UID -> PhotoUrl
     val isGroup: Boolean = false,
     val photoUrl: String? = null,
     val lastMessage: Message? = null,
-    val unreadCount: Int = 0,
+    val unreadCount: Map<String, Int> = emptyMap(),
     val createdAt: Date = Date()
 )
 
@@ -36,6 +38,8 @@ data class Message(
     val fileUrl: String? = null,
     val fileName: String? = null,
     val isRead: Boolean = false,
+    val deliveredTo: List<String> = emptyList(),
+    val seenBy: List<String> = emptyList(),
     val createdAt: Date = Date()
 )
 

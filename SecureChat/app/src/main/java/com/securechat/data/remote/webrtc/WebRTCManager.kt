@@ -1,87 +1,158 @@
 package com.securechat.data.remote.webrtc
 
 import android.content.Context
+import android.media.AudioManager
+import android.util.Log
 import com.securechat.domain.repository.CallRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import org.webrtc.*
+import org.webrtc.audio.JavaAudioDeviceModule
+import org.webrtc.Camera1Enumerator
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * WebRTCManager — quản lý toàn bộ vòng đời WebRTC
- *
- * Luồng hoạt động:
- * Caller: createOffer() → gửi SDP offer lên Firestore (qua CallRepository)
- *         → lắng nghe SDP answer → setRemoteDescription
- *         → gửi ICE candidates
- *
- * Callee: lắng nghe SDP offer → createAnswer() → gửi lên Firestore
- *         → setRemoteDescription
- *         → gửi ICE candidates
- */
 @Singleton
 class WebRTCManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val callRepository: CallRepository
 ) {
-    // ── PeerConnection factory ────────────────────────────────────────────────
-    private lateinit var peerConnectionFactory: PeerConnectionFactory
+    private companion object {
+        const val TAG = "WebRTCManager"
+        const val ROLE_CALLER = "caller"
+        const val ROLE_CALLEE = "callee"
+    }
+
+    private var peerConnectionFactory: PeerConnectionFactory? = null
     private var peerConnection: PeerConnection? = null
     private var localVideoTrack: VideoTrack? = null
     private var localAudioTrack: AudioTrack? = null
+    private var videoCapturer: VideoCapturer? = null
+    private var surfaceHelper: SurfaceTextureHelper? = null
+    private var remoteVideoTrack: VideoTrack? = null
+    private val pendingRemoteIceCandidates = mutableListOf<IceCandidate>()
+    private val processedRemoteCandidateKeys = mutableSetOf<String>()
+    private var localIceRole: String = ROLE_CALLER
+    private var remoteIceRole: String = ROLE_CALLEE
+    private val _iceConnectionState = MutableStateFlow<PeerConnection.IceConnectionState?>(null)
+    val iceConnectionState: StateFlow<PeerConnection.IceConnectionState?> = _iceConnectionState.asStateFlow()
+    private val _peerConnectionState = MutableStateFlow<PeerConnection.PeerConnectionState?>(null)
+    val peerConnectionState: StateFlow<PeerConnection.PeerConnectionState?> = _peerConnectionState.asStateFlow()
 
-    // Renderer surface (set từ UI)
+    val eglContext: EglBase.Context = EglBase.create().eglBaseContext
+
     var localVideoSink: VideoSink? = null
+        set(value) {
+            field = value
+            value?.let { localVideoTrack?.addSink(it) }
+        }
     var remoteVideoSink: VideoSink? = null
+        set(value) {
+            field = value
+            value?.let { sink ->
+                remoteVideoTrack?.addSink(sink)
+            }
+        }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    // ── Khởi tạo ─────────────────────────────────────────────────────────────
     fun initialize() {
-        // Init PeerConnectionFactory (bắt buộc gọi trước tiên)
+        if (peerConnectionFactory != null) return
+        
         PeerConnectionFactory.initialize(
             PeerConnectionFactory.InitializationOptions.builder(context)
                 .setEnableInternalTracer(true)
                 .createInitializationOptions()
         )
+
+        // Cấu hình Âm thanh chuyên nghiệp
+        val audioDeviceModule = JavaAudioDeviceModule.builder(context)
+            .setUseHardwareAcousticEchoCanceler(true)
+            .setUseHardwareNoiseSuppressor(true)
+            .createAudioDeviceModule()
+
         val options = PeerConnectionFactory.Options()
         peerConnectionFactory = PeerConnectionFactory.builder()
             .setOptions(options)
+            .setAudioDeviceModule(audioDeviceModule)
             .createPeerConnectionFactory()
+            
+        // Thiết lập chế độ Audio cho Android
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        audioManager.isSpeakerphoneOn = true
     }
 
-    // ── Tạo local stream (camera + mic) ──────────────────────────────────────
     fun startLocalStream(): VideoTrack {
-        val videoSource = peerConnectionFactory.createVideoSource(false)
-        val surfaceHelper = SurfaceTextureHelper.create("CameraThread", EglBase.create().eglBaseContext)
+        localVideoTrack?.let { return it }
 
-        // Camera2 enumerator
-        val enumerator = Camera2Enumerator(context)
-        val frontCamera = enumerator.deviceNames.find { enumerator.isFrontFacing(it) }
-            ?: enumerator.deviceNames.first()
+        val factory = peerConnectionFactory ?: throw IllegalStateException("Factory not initialized")
+        val videoSource = factory.createVideoSource(false)
+        surfaceHelper = SurfaceTextureHelper.create("CameraThread", eglContext)
 
-        val videoCapturer = enumerator.createCapturer(frontCamera, null) as VideoCapturer
-        videoCapturer.initialize(surfaceHelper, context, videoSource.capturerObserver)
-        videoCapturer.startCapture(1280, 720, 30)
+        val capturer = createBestCameraCapturer()
+            ?: throw IllegalStateException("No camera capturer available")
+        videoCapturer = capturer
 
-        localVideoTrack = peerConnectionFactory.createVideoTrack("local_video", videoSource)
-        localVideoTrack!!.addSink(localVideoSink ?: return localVideoTrack!!)
+        capturer.initialize(surfaceHelper, context, videoSource.capturerObserver)
+        try {
+            capturer.startCapture(1280, 720, 30)
+            Log.i(TAG, "startCapture success: 1280x720@30")
+        } catch (e: Exception) {
+            Log.e(TAG, "startCapture failed", e)
+            throw e
+        }
 
-        val audioSource = peerConnectionFactory.createAudioSource(MediaConstraints())
-        localAudioTrack = peerConnectionFactory.createAudioTrack("local_audio", audioSource)
+        localVideoTrack = factory.createVideoTrack("local_video", videoSource)
+        localVideoTrack?.setEnabled(true)
+        localVideoSink?.let { localVideoTrack?.addSink(it) }
+
+        val audioSource = factory.createAudioSource(MediaConstraints())
+        localAudioTrack = factory.createAudioTrack("local_audio", audioSource)
+        localAudioTrack?.setEnabled(true)
 
         return localVideoTrack!!
     }
 
-    // ── Tạo PeerConnection ────────────────────────────────────────────────────
+    private fun createBestCameraCapturer(): VideoCapturer? {
+        val camera2Enumerator = Camera2Enumerator(context)
+        val camera2Front = camera2Enumerator.deviceNames.firstOrNull { camera2Enumerator.isFrontFacing(it) }
+        val camera2Name = camera2Front ?: camera2Enumerator.deviceNames.firstOrNull()
+        if (camera2Name != null) {
+            val camera2Capturer = camera2Enumerator.createCapturer(camera2Name, null)
+            if (camera2Capturer != null) {
+                Log.i(TAG, "Using Camera2 capturer: $camera2Name")
+                return camera2Capturer
+            }
+        }
+
+        val camera1Enumerator = Camera1Enumerator(false)
+        val camera1Front = camera1Enumerator.deviceNames.firstOrNull { camera1Enumerator.isFrontFacing(it) }
+        val camera1Name = camera1Front ?: camera1Enumerator.deviceNames.firstOrNull()
+        if (camera1Name != null) {
+            val camera1Capturer = camera1Enumerator.createCapturer(camera1Name, null)
+            if (camera1Capturer != null) {
+                Log.i(TAG, "Using Camera1 capturer fallback: $camera1Name")
+                return camera1Capturer
+            }
+        }
+
+        Log.e(TAG, "Failed to create any camera capturer")
+        return null
+    }
+
+    fun setAudioEnabled(enabled: Boolean) { localAudioTrack?.setEnabled(enabled) }
+    fun setVideoEnabled(enabled: Boolean) { localVideoTrack?.setEnabled(enabled) }
+
     private fun createPeerConnection(sessionId: String): PeerConnection {
-        // STUN server — giúp tìm địa chỉ IP public (NAT traversal)
         val iceServers = listOf(
             PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
-            // Thêm TURN server ở đây nếu cần (trả phí)
+            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun2.l.google.com:19302").createIceServer()
         )
         val config = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -89,119 +160,304 @@ class WebRTCManager @Inject constructor(
 
         val observer = object : PeerConnection.Observer {
             override fun onIceCandidate(candidate: IceCandidate) {
-                // Gửi ICE candidate lên Firestore để peer kia nhận
                 scope.launch {
-                    callRepository.sendIceCandidate(
-                        sessionId,
-                        "${candidate.sdpMid}|${candidate.sdpMLineIndex}|${candidate.sdp}"
-                    )
+                    val mid = candidate.sdpMid ?: ""
+                    val payload = "$mid|${candidate.sdpMLineIndex}|${candidate.sdp}"
+                    Log.d(TAG, "onIceCandidate[$localIceRole] mid=$mid, index=${candidate.sdpMLineIndex}")
+                    callRepository.sendIceCandidate(sessionId, localIceRole, payload)
                 }
             }
 
             override fun onTrack(transceiver: RtpTransceiver) {
-                // Nhận remote video stream
-                val track = transceiver.receiver.track()
-                if (track is VideoTrack) {
-                    track.addSink(remoteVideoSink ?: return)
-                }
+                attachRemoteTrack(transceiver.receiver.track())
             }
 
-            override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {}
-            override fun onIceConnectionReceivingChange(receiving: Boolean) {}
-            override fun onSignalingChange(state: PeerConnection.SignalingState) {}
-            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
-            override fun onAddStream(stream: MediaStream) {}
-            override fun onRemoveStream(stream: MediaStream) {}
-            override fun onDataChannel(channel: DataChannel) {}
+            override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
+                Log.i(TAG, "onIceConnectionChange: $state (role=$localIceRole)")
+                _iceConnectionState.value = state
+            }
+            override fun onIceConnectionReceivingChange(p0: Boolean) {}
+            override fun onSignalingChange(p0: PeerConnection.SignalingState?) {}
+            override fun onIceGatheringChange(p0: PeerConnection.IceGatheringState?) {}
+            override fun onAddStream(p0: MediaStream?) {}
+            override fun onRemoveStream(p0: MediaStream?) {}
+            override fun onDataChannel(p0: DataChannel?) {}
             override fun onRenegotiationNeeded() {}
-            override fun onIceCandidatesRemoved(candidates: Array<IceCandidate>) {}
-            override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {}
-            override fun onSelectedCandidatePairChanged(event: CandidatePairChangeEvent) {}
-            override fun onAddTrack(receiver: RtpReceiver, streams: Array<MediaStream>) {}
+            override fun onIceCandidatesRemoved(p0: Array<out IceCandidate>?) {}
+            override fun onConnectionChange(p0: PeerConnection.PeerConnectionState?) {
+                Log.i(TAG, "onConnectionChange: $p0 (role=$localIceRole)")
+                _peerConnectionState.value = p0
+            }
+            override fun onSelectedCandidatePairChanged(p0: CandidatePairChangeEvent?) {}
+            override fun onAddTrack(p0: RtpReceiver?, p1: Array<out MediaStream>?) {
+                attachRemoteTrack(p0?.track())
+            }
         }
 
-        val pc = peerConnectionFactory.createPeerConnection(config, observer)!!
-
-        // Thêm local tracks vào peer connection
-        localVideoTrack?.let { pc.addTrack(it) }
-        localAudioTrack?.let { pc.addTrack(it) }
-
+        val pc = peerConnectionFactory!!.createPeerConnection(config, observer)!!
+        
+        // ═══ Cấu hình Transceiver: SEND_RECV (rõ ràng) ═══
+        val sendRecvInit = RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV)
+        
+        localVideoTrack?.let { 
+            pc.addTransceiver(it, sendRecvInit)
+            Log.i(TAG, "addTransceiver[video] SEND_RECV")
+        }
+        localAudioTrack?.let { 
+            pc.addTransceiver(it, sendRecvInit)
+            Log.i(TAG, "addTransceiver[audio] SEND_RECV")
+        }
         return pc
     }
 
-    // ── Caller: tạo offer ─────────────────────────────────────────────────────
     fun call(sessionId: String) {
+        localIceRole = ROLE_CALLER
+        remoteIceRole = ROLE_CALLEE
+        pendingRemoteIceCandidates.clear()
+        processedRemoteCandidateKeys.clear()
+        
+        Log.i(TAG, "╔═══ CALL INITIATED ═══")
+        Log.i(TAG, "║ localRole: $localIceRole")
+        Log.i(TAG, "║ remoteRole: $remoteIceRole")
+        Log.i(TAG, "╚════════════════════════")
+
         scope.launch {
             peerConnection = createPeerConnection(sessionId)
             val constraints = MediaConstraints().apply {
                 mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
                 mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
             }
-            peerConnection!!.createOffer(object : SdpObserverAdapter() {
-                override fun onCreateSuccess(sdp: SessionDescription) {
-                    peerConnection!!.setLocalDescription(SdpObserverAdapter(), sdp)
-                    scope.launch { callRepository.sendOffer(sessionId, sdp.description) }
+            peerConnection?.createOffer(object : SdpObserverAdapter() {
+                override fun onCreateSuccess(sdp: SessionDescription?) {
+                    sdp?.let {
+                        logSdpMediaSections("local-offer", it.description)
+                        peerConnection?.setLocalDescription(SdpObserverAdapter(), it)
+                        scope.launch { 
+                            Log.d(TAG, "Sending OFFER from $localIceRole")
+                            callRepository.sendOffer(sessionId, it.description) 
+                        }
+                    }
                 }
             }, constraints)
 
-            // Lắng nghe answer từ callee
             callRepository.observeAnswer(sessionId).collectLatest { answerSdp ->
                 answerSdp?.let {
-                    val sessionDesc = SessionDescription(SessionDescription.Type.ANSWER, it)
-                    peerConnection!!.setRemoteDescription(SdpObserverAdapter(), sessionDesc)
+                    logSdpMediaSections("remote-answer", it)
+                    peerConnection?.setRemoteDescription(object : SdpObserverAdapter() {
+                        override fun onSetSuccess() {
+                            Log.d(TAG, "Remote description (ANSWER) set, flushing ICE candidates...")
+                            flushPendingIceCandidates()
+                        }
+
+                        override fun onSetFailure(error: String?) {
+                            Log.e(TAG, "setRemoteDescription(answer) failed: $error")
+                        }
+                    }, SessionDescription(SessionDescription.Type.ANSWER, it))
                 }
             }
         }
-
-        // Lắng nghe ICE candidates từ peer
         observeRemoteIceCandidates(sessionId)
     }
 
-    // ── Callee: tạo answer ────────────────────────────────────────────────────
     fun answer(sessionId: String, offerSdp: String) {
+        localIceRole = ROLE_CALLEE
+        remoteIceRole = ROLE_CALLER
+        pendingRemoteIceCandidates.clear()
+        processedRemoteCandidateKeys.clear()
+
+        Log.i(TAG, "╔═══ CALL ANSWERED ═══")
+        Log.i(TAG, "║ localRole: $localIceRole")
+        Log.i(TAG, "║ remoteRole: $remoteIceRole")
+        Log.i(TAG, "╚════════════════════════")
+
         scope.launch {
             peerConnection = createPeerConnection(sessionId)
-            val offer = SessionDescription(SessionDescription.Type.OFFER, offerSdp)
-            peerConnection!!.setRemoteDescription(SdpObserverAdapter(), offer)
-
-            peerConnection!!.createAnswer(object : SdpObserverAdapter() {
-                override fun onCreateSuccess(sdp: SessionDescription) {
-                    peerConnection!!.setLocalDescription(SdpObserverAdapter(), sdp)
-                    scope.launch { callRepository.sendAnswer(sessionId, sdp.description) }
+            logSdpMediaSections("remote-offer", offerSdp)
+            peerConnection?.setRemoteDescription(object : SdpObserverAdapter() {
+                override fun onSetSuccess() {
+                    Log.d(TAG, "Remote description (OFFER) set, flushing ICE candidates...")
+                    flushPendingIceCandidates()
+                    createAndSendAnswer(sessionId)
                 }
-            }, MediaConstraints())
+
+                override fun onSetFailure(error: String?) {
+                    Log.e(TAG, "setRemoteDescription(offer) failed: $error")
+                }
+            }, SessionDescription(SessionDescription.Type.OFFER, offerSdp))
         }
         observeRemoteIceCandidates(sessionId)
     }
 
-    // ── Nhận ICE candidates từ Firestore ─────────────────────────────────────
+    private fun createAndSendAnswer(sessionId: String) {
+        peerConnection?.createAnswer(object : SdpObserverAdapter() {
+            override fun onCreateSuccess(sdp: SessionDescription?) {
+                sdp?.let {
+                    logSdpMediaSections("local-answer", it.description)
+                    peerConnection?.setLocalDescription(SdpObserverAdapter(), it)
+                    scope.launch { 
+                        Log.d(TAG, "Sending ANSWER from $localIceRole")
+                        callRepository.sendAnswer(sessionId, it.description) 
+                    }
+                }
+            }
+
+            override fun onCreateFailure(error: String?) {
+                Log.e(TAG, "createAnswer failed: $error")
+            }
+        }, MediaConstraints())
+    }
+
     private fun observeRemoteIceCandidates(sessionId: String) {
         scope.launch {
-            callRepository.observeIceCandidates(sessionId).collectLatest { candidates ->
-                candidates.forEach { raw ->
-                    val parts = raw.split("|")
-                    if (parts.size == 3) {
-                        val candidate = IceCandidate(parts[0], parts[1].toInt(), parts[2])
-                        peerConnection?.addIceCandidate(candidate)
+            callRepository.observeIceCandidates(sessionId, remoteIceRole).collect { candidates ->
+                Log.d(TAG, "observeIceCandidates[$remoteIceRole] received ${candidates.size} candidate(s)")
+                
+                candidates.forEach { payload ->
+                    if (!processedRemoteCandidateKeys.add(payload)) {
+                        Log.d(TAG, "  ↳ [DUPLICATE] skipped already processed candidate")
+                        return@forEach
+                    }
+
+                    val parts = payload.split("|", limit = 3)
+                    val mLineIndex = parts.getOrNull(1)?.toIntOrNull()
+                    if (parts.size == 3 && mLineIndex != null) {
+                        val sdpMid = parts[0].takeIf { it.isNotBlank() && it != "null" }
+                        val candidate = IceCandidate(sdpMid, mLineIndex, parts[2])
+                        val pc = peerConnection
+                        
+                        // Log candidate details
+                        Log.d(TAG, "  ✦ ICE[$remoteIceRole] mid='$sdpMid' index=$mLineIndex sdp=${parts[2].take(40)}...")
+                        
+                        if (pc?.remoteDescription == null) {
+                            pendingRemoteIceCandidates.add(candidate)
+                            Log.d(TAG, "    → QUEUED (remoteDescription not ready)")
+                        } else {
+                            val added = pc.addIceCandidate(candidate)
+                            if (added) {
+                                Log.d(TAG, "    → ADDED to PeerConnection")
+                            } else {
+                                Log.w(TAG, "    → FAILED, queueing for retry")
+                                pendingRemoteIceCandidates.add(candidate)
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "  ✗ Invalid ICE[$remoteIceRole] candidate format: $payload")
                     }
                 }
             }
         }
     }
 
-    // ── Kết thúc cuộc gọi ────────────────────────────────────────────────────
+    private fun logSdpMediaSections(label: String, sdp: String) {
+        val sections = mutableListOf<Pair<String, String>>()
+        var currentType: String? = null
+        var currentDir = "unspecified"
+
+        sdp.lineSequence().forEach { rawLine ->
+            val line = rawLine.trim()
+            if (line.startsWith("m=")) {
+                currentType?.let { sections.add(it to currentDir) }
+                currentType = line.removePrefix("m=").substringBefore(' ')
+                currentDir = "unspecified"
+            } else if (line == "a=sendrecv") {
+                currentDir = "sendrecv"
+            } else if (line == "a=sendonly") {
+                currentDir = "sendonly"
+            } else if (line == "a=recvonly") {
+                currentDir = "recvonly"
+            } else if (line == "a=inactive") {
+                currentDir = "inactive"
+            }
+        }
+        currentType?.let { sections.add(it to currentDir) }
+
+        if (sections.isEmpty()) {
+            Log.w(TAG, "SDP[$label] has no media sections")
+            return
+        }
+
+        val summary = sections.joinToString(" | ") { "${it.first}:${it.second}" }
+        Log.i(TAG, "╔═══ SDP[$label] Media Sections ═══")
+        Log.i(TAG, "║ $summary")
+        
+        // Log each media section detail
+        sections.forEachIndexed { index, (type, direction) ->
+            Log.i(TAG, "║ [$index] m=$type → a=$direction")
+        }
+
+        val videoDirection = sections.firstOrNull { it.first == "video" }?.second
+        when (videoDirection) {
+            null -> Log.w(TAG, "║ ⚠️  missing m=video section")
+            "sendrecv" -> Log.i(TAG, "║ ✓ m=video is BIDIRECTIONAL (sendrecv)")
+            else -> Log.w(TAG, "║ ⚠️  m=video direction is '$videoDirection' (not bidirectional)")
+        }
+        
+        Log.i(TAG, "╚═══════════════════════════════════")
+    }
+
+    private fun attachRemoteTrack(track: MediaStreamTrack?) {
+        if (track is VideoTrack) {
+            Log.i(TAG, "Remote VideoTrack attached")
+            remoteVideoTrack = track
+            remoteVideoSink?.let { sink ->
+                track.addSink(sink)
+            }
+        }
+    }
+
+    private fun flushPendingIceCandidates() {
+        val pc = peerConnection ?: return
+        if (pc.remoteDescription == null || pendingRemoteIceCandidates.isEmpty()) return
+
+        Log.i(TAG, "╔═══ Flushing ${pendingRemoteIceCandidates.size} ICE Candidates ═══")
+        var successCount = 0
+        var failCount = 0
+        
+        pendingRemoteIceCandidates.forEach { candidate ->
+            val added = pc.addIceCandidate(candidate)
+            if (added) {
+                successCount++
+                Log.d(TAG, "  ✓ Added ICE candidate from $remoteIceRole")
+            } else {
+                failCount++
+                Log.w(TAG, "  ✗ Failed to add ICE candidate from $remoteIceRole")
+            }
+        }
+        
+        Log.i(TAG, "║ Result: $successCount succeeded, $failCount failed")
+        Log.i(TAG, "╚═══════════════════════════════════════════════════════════")
+        pendingRemoteIceCandidates.clear()
+    }
+
     fun endCall() {
-        peerConnection?.close()
-        peerConnection = null
-        localVideoTrack?.dispose()
-        localAudioTrack?.dispose()
-        scope.coroutineContext.cancelChildren()
+        try {
+            videoCapturer?.stopCapture()
+            videoCapturer?.dispose()
+            surfaceHelper?.dispose()
+            peerConnection?.close()
+            localVideoTrack?.dispose()
+            localAudioTrack?.dispose()
+            peerConnection = null
+            localVideoTrack = null
+            localAudioTrack = null
+            localVideoSink = null
+            remoteVideoSink = null
+            remoteVideoTrack = null
+            pendingRemoteIceCandidates.clear()
+            processedRemoteCandidateKeys.clear()
+            _iceConnectionState.value = null
+            _peerConnectionState.value = null
+            scope.coroutineContext.cancelChildren()
+            
+            // Trả lại âm thanh bình thường
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            audioManager.mode = AudioManager.MODE_NORMAL
+        } catch (e: Exception) {}
     }
 }
 
-// Adapter tránh phải override tất cả methods của SdpObserver
 open class SdpObserverAdapter : SdpObserver {
-    override fun onCreateSuccess(sdp: SessionDescription) {}
+    override fun onCreateSuccess(sdp: SessionDescription?) {}
     override fun onSetSuccess() {}
     override fun onCreateFailure(error: String?) {}
     override fun onSetFailure(error: String?) {}

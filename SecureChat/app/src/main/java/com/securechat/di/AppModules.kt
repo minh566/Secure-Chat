@@ -10,9 +10,11 @@ import com.securechat.data.local.dao.MessageDao
 import com.securechat.data.repository.AuthRepositoryImpl
 import com.securechat.data.repository.CallRepositoryImpl
 import com.securechat.data.repository.ChatRepositoryImpl
+import com.securechat.data.repository.UserRepositoryImpl
 import com.securechat.domain.repository.AuthRepository
 import com.securechat.domain.repository.CallRepository
 import com.securechat.domain.repository.ChatRepository
+import com.securechat.domain.repository.UserRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -63,4 +65,7 @@ abstract class RepositoryModule {
 
     @Binds @Singleton
     abstract fun bindCallRepository(impl: CallRepositoryImpl): CallRepository
+
+    @Binds @Singleton
+    abstract fun bindUserRepository(impl: UserRepositoryImpl): UserRepository
 }

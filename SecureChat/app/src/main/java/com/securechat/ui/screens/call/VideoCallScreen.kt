@@ -9,12 +9,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.securechat.domain.model.CallStatus
+import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 
 @Composable
@@ -24,9 +26,15 @@ fun VideoCallScreen(
     viewModel: CallViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val eglContext = viewModel.getEglContext()
 
     LaunchedEffect(uiState.status) {
-        if (uiState.status == CallStatus.ENDED) onCallEnded()
+        if (uiState.status == CallStatus.ENDED ||
+            uiState.status == CallStatus.DECLINED ||
+            uiState.status == CallStatus.MISSED
+        ) {
+            onCallEnded()
+        }
     }
 
     Box(
@@ -34,31 +42,47 @@ fun VideoCallScreen(
             .fillMaxSize()
             .background(Color(0xFF1A1A2E))
     ) {
+        // ── REMOTE VIDEO (Màn hình lớn) ──
         AndroidView(
             factory = { context ->
                 SurfaceViewRenderer(context).apply {
-                    init(null, null)
-                    setMirror(false)
+                    init(eglContext, null)
+                    setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+                    setEnableHardwareScaler(true)
+                    // Đăng ký sink với WebRTCManager
+                    viewModel.setRemoteSink(this)
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
 
+        // ── LOCAL VIDEO (Màn hình nhỏ góc trên) ──
         if (!uiState.isCameraOff) {
-            AndroidView(
-                factory = { context ->
-                    SurfaceViewRenderer(context).apply {
-                        init(null, null)
-                        setMirror(true)
-                    }
-                },
+            Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(16.dp)
-                    .size(width = 110.dp, height = 160.dp)
-            )
+                    .size(width = 120.dp, height = 180.dp)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(Color.Black)
+            ) {
+                AndroidView(
+                    factory = { context ->
+                        SurfaceViewRenderer(context).apply {
+                            init(eglContext, null)
+                            setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+                            setEnableHardwareScaler(true)
+                            setMirror(true)
+                            // Đăng ký sink với WebRTCManager
+                            viewModel.setLocalSink(this)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
 
+        // ── THÔNG TIN CUỘC GỌI ──
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -81,6 +105,7 @@ fun VideoCallScreen(
             )
         }
 
+        // ── ĐIỀU KHIỂN ──
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)

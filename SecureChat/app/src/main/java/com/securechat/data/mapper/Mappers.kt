@@ -26,7 +26,9 @@ fun Message.toMessageEntity() = MessageEntity(
     fileUrl    = fileUrl,
     fileName   = fileName,
     isRead     = isRead,
-    createdAt  = createdAt.time          // Date → Long
+    deliveredToCsv = deliveredTo.joinToString(","),
+    seenByCsv  = seenBy.joinToString(","),
+    createdAt  = createdAt.time          // Date -> Long
 )
 
 // Room Entity → Domain Message (để hiển thị)
@@ -40,5 +42,7 @@ fun MessageEntity.toMessage() = Message(
     fileUrl    = fileUrl,
     fileName   = fileName,
     isRead     = isRead,
-    createdAt  = Date(createdAt)         // Long → Date
+    deliveredTo = deliveredToCsv.split(',').filter { it.isNotBlank() },
+    seenBy     = seenByCsv.split(',').filter { it.isNotBlank() },
+    createdAt  = Date(createdAt)         // Long -> Date
 )

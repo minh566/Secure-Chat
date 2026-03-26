@@ -14,5 +14,7 @@ data class MessageEntity(
     val fileUrl: String? = null,
     val fileName: String? = null,
     val isRead: Boolean = false,
+    val deliveredToCsv: String = "",
+    val seenByCsv: String = "",
     val createdAt: Long
 )
