@@ -18,6 +18,16 @@ service cloud.firestore {
       return request.auth.uid in roomData.members;
     }
 
+    function isFriendRequestParticipant(data) {
+      return request.auth.uid == data.fromUserId || request.auth.uid == data.toUserId;
+    }
+
+    function hasFriendRequestShape(data) {
+      return data.keys().hasOnly([
+        'id', 'fromUserId', 'toUserId', 'status', 'createdAt', 'updatedAt'
+      ]);
+    }
+
     // ── Users collection ───────────────────────────────────────────────────
     match /users/{userId} {
       // Đọc: bất kỳ user đã đăng nhập nào
@@ -42,6 +52,35 @@ service cloud.firestore {
         allow read, write: if isAuthenticated() &&
                               isMember(get(/databases/$(database)/documents/rooms/$(roomId)).data);
       }
+    }
+
+    // ── Friend requests collection ────────────────────────────────────────
+    match /friend_requests/{requestId} {
+      // Sender can create only as themself, pending state only
+      allow create: if isAuthenticated() &&
+                       hasFriendRequestShape(request.resource.data) &&
+                       request.resource.data.id == requestId &&
+                       request.auth.uid == request.resource.data.fromUserId &&
+                       request.resource.data.fromUserId != request.resource.data.toUserId &&
+                       request.resource.data.status == "PENDING";
+
+      // Sender/recipient can read relation records
+      allow read: if isAuthenticated() &&
+                     isFriendRequestParticipant(resource.data);
+
+      // Recipient can resolve their incoming request
+      allow update: if isAuthenticated() &&
+                       hasFriendRequestShape(request.resource.data) &&
+                       request.auth.uid == resource.data.toUserId &&
+                       request.resource.data.id == resource.data.id &&
+                       resource.data.status == "PENDING" &&
+                       request.resource.data.fromUserId == resource.data.fromUserId &&
+                       request.resource.data.toUserId == resource.data.toUserId &&
+                       request.resource.data.createdAt == resource.data.createdAt &&
+                       (request.resource.data.status == "ACCEPTED" ||
+                        request.resource.data.status == "REJECTED");
+
+      allow delete: if false;
     }
 
     // ── Calls collection ───────────────────────────────────────────────────

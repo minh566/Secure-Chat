@@ -1,0 +1,17 @@
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.auth.AuthViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.auth.AuthViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.call.CallViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.call.CallViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.chat.ChatViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.chat.ChatViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.contact.ContactsViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.contact.ContactsViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.home.HomeViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.home.HomeViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.profile.ProfileViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.profile.ProfileViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.settings.PrivacySettingsViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.settings.PrivacySettingsViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.settings.SecuritySettingsViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.settings.SecuritySettingsViewModel
+-keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.settings.SettingsViewModel

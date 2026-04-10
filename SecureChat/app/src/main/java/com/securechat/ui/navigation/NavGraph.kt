@@ -1,6 +1,8 @@
+
 package com.securechat.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.*
 import androidx.navigation.compose.*
 import com.securechat.domain.repository.AuthRepository
@@ -9,11 +11,20 @@ import com.securechat.ui.screens.auth.RegisterScreen
 import com.securechat.ui.screens.call.VideoCallScreen
 import com.securechat.ui.screens.chat.ChatScreen
 import com.securechat.ui.screens.home.HomeScreen
+import com.securechat.ui.screens.profile.EditProfileScreen
+import com.securechat.ui.screens.settings.PrivacySettingsScreen
+import com.securechat.ui.screens.settings.SecuritySettingsScreen
+import com.securechat.ui.screens.settings.SettingsScreen
+import kotlinx.coroutines.launch
 
 sealed class Screen(val route: String) {
     data object Login    : Screen("login")
     data object Register : Screen("register")
     data object Home     : Screen("home")
+    data object Settings : Screen("settings")
+    data object PrivacySettings : Screen("settings/privacy")
+    data object SecuritySettings : Screen("settings/security")
+    data object EditProfile : Screen("edit_profile")
 
     data object Chat : Screen("chat/{roomId}/{roomName}") {
         fun go(roomId: String, roomName: String) =
@@ -23,6 +34,11 @@ sealed class Screen(val route: String) {
     data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}/{calleeId}") {
         fun go(sessionId: String, calleeName: String, isCaller: Boolean, calleeId: String) =
             "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller/${java.net.URLEncoder.encode(calleeId, "UTF-8")}"
+
+    data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}/{peerId}") {
+        fun go(sessionId: String, calleeName: String, isCaller: Boolean, peerId: String) =
+            "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller/${java.net.URLEncoder.encode(peerId, "UTF-8")}"
+
     }
 }
 
@@ -32,6 +48,8 @@ fun SecureChatNavGraph(
     startDestination: String,
     authRepository: AuthRepository
 ) {
+    val scope = rememberCoroutineScope()
+
     NavHost(
         navController    = navController,
         startDestination = startDestination
@@ -63,13 +81,39 @@ fun SecureChatNavGraph(
                 onOpenChat = { roomId, roomName ->
                     navController.navigate(Screen.Chat.go(roomId, roomName))
                 },
-                onSignedOut = {
-                    // SỬA ĐỔI: Xóa toàn bộ stack để không quay lại được Home sau logout
-                    navController.navigate(Screen.Login.route) {
-                        popUpTo(0) { inclusive = true }
+                onOpenSettings = {
+                    navController.navigate(Screen.Settings.route)
+                }
+            )
+        }
+
+        composable(Screen.Settings.route) {
+            SettingsScreen(
+                { navController.popBackStack() },
+                { navController.navigate(Screen.EditProfile.route) },
+                { navController.navigate(Screen.PrivacySettings.route) },
+                { navController.navigate(Screen.SecuritySettings.route) },
+                {
+                    scope.launch {
+                        authRepository.signOut()
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
                     }
                 }
             )
+        }
+
+        composable(Screen.PrivacySettings.route) {
+            PrivacySettingsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Screen.SecuritySettings.route) {
+            SecuritySettingsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Screen.EditProfile.route) {
+            EditProfileScreen(onBack = { navController.popBackStack() })
         }
 
         composable(
@@ -79,7 +123,6 @@ fun SecureChatNavGraph(
                 navArgument("roomName") { type = NavType.StringType }
             )
         ) { backStackEntry ->
-            val roomId   = backStackEntry.arguments?.getString("roomId") ?: ""
             val roomNameRaw = backStackEntry.arguments?.getString("roomName") ?: ""
             val roomName = java.net.URLDecoder.decode(roomNameRaw, "UTF-8")
 
@@ -100,7 +143,10 @@ fun SecureChatNavGraph(
                 navArgument("sessionId")  { type = NavType.StringType },
                 navArgument("calleeName") { type = NavType.StringType },
                 navArgument("isCaller")   { type = NavType.BoolType },
+
                 navArgument("calleeId")   { type = NavType.StringType }
+
+                navArgument("peerId")     { type = NavType.StringType }
             )
         ) { backStackEntry ->
             val calleeNameRaw = backStackEntry.arguments?.getString("calleeName") ?: ""
@@ -113,3 +159,4 @@ fun SecureChatNavGraph(
         }
     }
 }
+

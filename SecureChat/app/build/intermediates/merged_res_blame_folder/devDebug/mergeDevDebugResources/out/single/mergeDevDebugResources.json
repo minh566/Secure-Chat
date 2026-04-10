@@ -1,0 +1,6 @@
+[
+    {
+        "merged": "com.securechat.app-devDebug-80:/xml_network_security_config.xml.flat",
+        "source": "com.securechat.app-dev-82:/xml/network_security_config.xml"
+    }
+]

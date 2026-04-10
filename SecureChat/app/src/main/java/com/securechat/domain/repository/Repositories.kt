@@ -1,3 +1,4 @@
+
 package com.securechat.domain.repository
 
 import com.securechat.domain.model.*
@@ -7,6 +8,7 @@ interface ChatRepository {
     fun getChatRooms(userId: String): Flow<Resource<List<ChatRoom>>>
     suspend fun createRoom(name: String, memberIds: List<String>, isGroup: Boolean): Resource<ChatRoom>
     suspend fun getChatRoom(roomId: String): Resource<ChatRoom>
+    suspend fun addMembersToRoom(roomId: String, memberIds: List<String>): Resource<Unit>
     suspend fun deleteChatRoom(roomId: String): Resource<Unit> // THÊM DÒNG NÀY
 
     fun getMessages(roomId: String): Flow<Resource<List<Message>>>
@@ -34,6 +36,10 @@ interface UserRepository {
     suspend fun getUser(uid: String): Resource<User>
     fun getUserOnlineStatus(uid: String): Flow<Boolean>
     suspend fun setOnlineStatus(isOnline: Boolean): Resource<Unit>
+    fun observeIncomingFriendRequests(): Flow<Resource<List<User>>>
+    suspend fun sendFriendRequest(targetUserId: String): Resource<Unit>
+    suspend fun acceptFriendRequest(fromUserId: String): Resource<Unit>
+    suspend fun rejectFriendRequest(fromUserId: String): Resource<Unit>
 }
 
 interface CallRepository {

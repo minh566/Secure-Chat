@@ -6,4 +6,7 @@ plugins {
     alias(libs.plugins.hilt.android) apply false
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.google.services) apply false
+
+    // THÊM DÒNG NÀY ĐỂ FIX LỖI PLUGIN CHO SIGNALING-SERVER
+    kotlin("jvm") version "2.1.0" apply false
 }

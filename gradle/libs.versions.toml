@@ -13,6 +13,8 @@ coroutines              = "1.9.0"
 coil                    = "2.7.0"
 datastore               = "1.1.1"
 webrtc                  = "1.3.10"
+okhttp                  = "4.12.0"
+biometric               = "1.1.0"
 
 [libraries]
 # Compose BOM
@@ -51,6 +53,7 @@ androidx-room-compiler            = { group = "androidx.room",        name = "ro
 
 # WebRTC
 webrtc                            = { group = "io.getstream",         name = "stream-webrtc-android", version.ref = "webrtc" }
+okhttp                            = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 
 # Coroutines
 kotlinx-coroutines-android        = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
@@ -61,6 +64,7 @@ coil-compose                      = { group = "io.coil-kt",           name = "co
 
 # DataStore
 androidx-datastore-preferences    = { group = "androidx.datastore",   name = "datastore-preferences", version.ref = "datastore" }
+androidx-biometric                = { group = "androidx.biometric",   name = "biometric", version.ref = "biometric" }
 
 [plugins]
 android-application   = { id = "com.android.application",          version.ref = "agp" }

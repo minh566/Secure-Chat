@@ -1,15 +1,22 @@
+
 package com.securechat.data.repository
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageException
 import com.securechat.data.local.dao.MessageDao
 import com.securechat.data.mapper.toMessage
 import com.securechat.data.mapper.toMessageEntity
 import com.securechat.domain.model.*
 import com.securechat.domain.repository.ChatRepository
 import com.securechat.domain.repository.UserRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
@@ -19,6 +26,8 @@ import javax.inject.Singleton
 
 @Singleton
 class ChatRepositoryImpl @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val firebaseAuth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val storage: FirebaseStorage,
     private val messageDao: MessageDao,
@@ -52,10 +61,27 @@ class ChatRepositoryImpl @Inject constructor(
         isGroup: Boolean
     ): Resource<ChatRoom> {
         return try {
+            val directMembers = memberIds.distinct()
+            if (!isGroup && directMembers.size == 2) {
+                val firstUserId = directMembers.first()
+                val existing = firestore.collection("rooms")
+                    .whereEqualTo("isGroup", false)
+                    .whereArrayContains("members", firstUserId)
+                    .get()
+                    .await()
+                    .documents
+                    .mapNotNull { it.toObject(ChatRoom::class.java)?.copy(id = it.id) }
+                    .firstOrNull { room -> room.members.toSet() == directMembers.toSet() }
+
+                if (existing != null) {
+                    return Resource.Success(existing)
+                }
+            }
+
             val names = mutableMapOf<String, String>()
             val photos = mutableMapOf<String, String>()
-            
-            for (id in memberIds) {
+
+            for (id in directMembers) {
                 val userResult = userRepository.getUser(id)
                 if (userResult is Resource.Success) {
                     names[id] = userResult.data.displayName
@@ -66,7 +92,7 @@ class ChatRepositoryImpl @Inject constructor(
             val room = ChatRoom(
                 id       = UUID.randomUUID().toString(),
                 name     = name,
-                members  = memberIds,
+                members  = directMembers,
                 memberNames = names,
                 memberPhotos = photos,
                 isGroup  = isGroup
@@ -87,6 +113,49 @@ class ChatRepositoryImpl @Inject constructor(
             Resource.Success(room)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "Lỗi tải phòng")
+        }
+    }
+
+    override suspend fun addMembersToRoom(roomId: String, memberIds: List<String>): Resource<Unit> {
+        if (memberIds.isEmpty()) return Resource.Error("Chưa chọn thành viên để thêm")
+
+        return try {
+            val roomRef = firestore.collection("rooms").document(roomId)
+            val roomDoc = roomRef.get().await()
+            val room = roomDoc.toObject(ChatRoom::class.java)?.copy(id = roomDoc.id)
+                ?: return Resource.Error("Không tìm thấy phòng chat")
+
+            val existingMembers = room.members.toSet()
+            val newMemberIds = memberIds.filter { it !in existingMembers }.distinct()
+            if (newMemberIds.isEmpty()) return Resource.Success(Unit)
+
+            val updatedNames = room.memberNames.toMutableMap()
+            val updatedPhotos = room.memberPhotos.toMutableMap()
+            val updatedUnread = room.unreadCount.toMutableMap()
+
+            newMemberIds.forEach { uid ->
+                val userResult = userRepository.getUser(uid)
+                if (userResult is Resource.Success) {
+                    updatedNames[uid] = userResult.data.displayName
+                    updatedPhotos[uid] = userResult.data.photoUrl ?: ""
+                }
+                updatedUnread.putIfAbsent(uid, 0)
+            }
+
+            val mergedMembers = (room.members + newMemberIds).distinct()
+            roomRef.update(
+                mapOf(
+                    "members" to mergedMembers,
+                    "memberNames" to updatedNames,
+                    "memberPhotos" to updatedPhotos,
+                    "unreadCount" to updatedUnread,
+                    "isGroup" to (room.isGroup || mergedMembers.size > 2)
+                )
+            ).await()
+
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "Thêm thành viên thất bại")
         }
     }
 
@@ -172,7 +241,121 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override suspend fun sendFile(roomId: String, fileUri: String, type: MessageType): Resource<Unit> {
-        return Resource.Success(Unit)
+        return try {
+            val sender = firebaseAuth.currentUser
+                ?: return Resource.Error("Chua dang nhap")
+
+            val uri = runCatching { Uri.parse(fileUri) }
+                .getOrElse { return Resource.Error("Duong dan file khong hop le") }
+
+            val fileName = resolveDisplayName(uri) ?: "file_${System.currentTimeMillis()}"
+            val fileSizeBytes = resolveFileSize(uri)
+            val mimeType = resolveMimeType(uri)
+
+            val validationResult = FileUploadValidator.validateForUpload(fileSizeBytes, mimeType)
+            if (validationResult is Resource.Error) {
+                return validationResult
+            }
+
+            val messageType = FileUploadValidator.resolveMessageType(mimeType)
+                ?: return Resource.Error("Dinh dang file khong duoc ho tro")
+
+            val safeFileName = fileName.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val objectName = "${UUID.randomUUID()}_$safeFileName"
+            val storageRef = storage.reference.child("chats/$roomId/files/$objectName")
+
+            storageRef.putFile(uri).await()
+            val downloadUrl = storageRef.downloadUrl.await().toString()
+
+            val now = java.util.Date()
+            val message = Message(
+                id = UUID.randomUUID().toString(),
+                roomId = roomId,
+                senderId = sender.uid,
+                senderName = sender.displayName ?: sender.email ?: "Nguoi dung",
+                content = fileName,
+                type = messageType,
+                fileUrl = downloadUrl,
+                fileName = fileName,
+                deliveredTo = listOf(sender.uid),
+                seenBy = listOf(sender.uid),
+                createdAt = now
+            )
+
+            firestore.collection("rooms")
+                .document(roomId)
+                .collection("messages")
+                .document(message.id)
+                .set(message)
+                .await()
+
+            firestore.collection("rooms")
+                .document(roomId)
+                .update(
+                    mapOf(
+                        "lastMessage" to message,
+                        "lastMessage.createdAt" to message.createdAt
+                    )
+                ).await()
+
+            messageDao.insertMessage(message.toMessageEntity())
+            Resource.Success(Unit)
+        } catch (e: StorageException) {
+            val errorMessage = when (e.errorCode) {
+                StorageException.ERROR_RETRY_LIMIT_EXCEEDED,
+                StorageException.ERROR_CANCELED -> "Tai file that bai do ket noi, vui long thu lai"
+                StorageException.ERROR_QUOTA_EXCEEDED -> "Vuot gioi han luu tru"
+                else -> e.localizedMessage ?: "Tai file that bai"
+            }
+            Resource.Error(errorMessage, e)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "Gui file that bai", e)
+        }
+    }
+
+    private fun resolveDisplayName(uri: Uri): String? {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && cursor.moveToFirst()) {
+                    return cursor.getString(idx)
+                }
+            }
+        return uri.lastPathSegment?.substringAfterLast('/')
+    }
+
+    private fun resolveFileSize(uri: Uri): Long {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)
+            ?.use { cursor ->
+                val idx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (idx >= 0 && cursor.moveToFirst()) {
+                    val value = cursor.getLong(idx)
+                    if (value > 0L) return value
+                }
+            }
+
+        return runCatching {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { fd -> fd.statSize } ?: -1L
+        }.getOrDefault(-1L)
+    }
+
+    private fun resolveMimeType(uri: Uri): String? {
+        val fromResolver = context.contentResolver.getType(uri)
+        if (!fromResolver.isNullOrBlank()) return fromResolver
+        val extension = resolveDisplayName(uri)
+            ?.substringAfterLast('.', missingDelimiterValue = "")
+            ?.lowercase()
+            ?: return null
+
+        return when (extension) {
+            "jpg", "jpeg", "png", "gif", "webp" -> "image/$extension"
+            "pdf" -> "application/pdf"
+            "txt" -> "text/plain"
+            "doc", "docx" -> "application/msword"
+            "xls", "xlsx" -> "application/vnd.ms-excel"
+            "mp4", "mov" -> "video/mp4"
+            else -> null
+        }
     }
 
     override suspend fun deleteChatRoom(roomId: String): Resource<Unit> {
@@ -268,3 +451,31 @@ class ChatRepositoryImpl @Inject constructor(
         }
     }
 }
+
+internal object FileUploadValidator {
+    private const val MAX_FILE_BYTES: Long = 25L * 1024L * 1024L
+
+    fun resolveMessageType(mimeType: String?): MessageType? {
+        if (mimeType.isNullOrBlank()) return null
+        return if (mimeType.startsWith("image/")) MessageType.IMAGE else if (isSupportedMime(mimeType)) MessageType.FILE else null
+    }
+
+    fun validateForUpload(fileSizeBytes: Long, mimeType: String?): Resource<Unit> {
+        if (fileSizeBytes > MAX_FILE_BYTES) {
+            return Resource.Error("File vuot qua gioi han 25MB")
+        }
+        if (resolveMessageType(mimeType) == null) {
+            return Resource.Error("Dinh dang file khong duoc ho tro")
+        }
+        return Resource.Success(Unit)
+    }
+
+    private fun isSupportedMime(mimeType: String): Boolean {
+        return mimeType.startsWith("application/") ||
+            mimeType.startsWith("text/") ||
+            mimeType.startsWith("audio/") ||
+            mimeType.startsWith("video/") ||
+            mimeType.startsWith("image/")
+    }
+}
+

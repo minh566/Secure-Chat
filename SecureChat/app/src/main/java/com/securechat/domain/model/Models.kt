@@ -1,3 +1,4 @@
+
 package com.securechat.domain.model
 
 import java.util.Date
@@ -10,8 +11,20 @@ data class User(
     val photoUrl: String? = null,
     val isOnline: Boolean = false,
     val fcmToken: String? = null,
+    val friendIds: List<String> = emptyList(),
     val createdAt: Date = Date()
 )
+
+data class FriendRequest(
+    val id: String = "",
+    val fromUserId: String = "",
+    val toUserId: String = "",
+    val status: FriendRequestStatus = FriendRequestStatus.PENDING,
+    val createdAt: Date = Date(),
+    val updatedAt: Date = Date()
+)
+
+enum class FriendRequestStatus { PENDING, ACCEPTED, REJECTED }
 
 // ── Chat Room ────────────────────────────────────────────────────────────────
 data class ChatRoom(
@@ -73,3 +86,4 @@ sealed class Resource<out T> {
     data class Error(val message: String, val cause: Throwable? = null) : Resource<Nothing>()
     object Loading : Resource<Nothing>()
 }
+

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.securechat.data.remote.webrtc.TurnIceServerPolicyTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-04-10T07:39:02" hostname="DESKTOP-HL4PHQ6" time="0.017">
+  <properties/>
+  <testcase name="resolve_failure_nullCredentials_fallsBackToStunOnly" classname="com.securechat.data.remote.webrtc.TurnIceServerPolicyTest" time="0.016"/>
+  <testcase name="resolve_happyPath_withTurnCredentials_includesTurnAndStun" classname="com.securechat.data.remote.webrtc.TurnIceServerPolicyTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

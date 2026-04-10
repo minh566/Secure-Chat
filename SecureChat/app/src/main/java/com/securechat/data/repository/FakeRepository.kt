@@ -1,3 +1,4 @@
+
 package com.securechat.data.repository
 
 import com.securechat.domain.model.*
@@ -98,3 +99,5 @@ class FakeRepository @Inject constructor() {
 
     fun getCurrentUser() = User("me", "Demo User", "me@demo.com")
 }
+
+

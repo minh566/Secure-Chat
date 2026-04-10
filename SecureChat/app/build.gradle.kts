@@ -11,12 +11,28 @@ android {
     namespace = "com.securechat"
     compileSdk = 36
 
+    flavorDimensions += "env"
+
     defaultConfig {
         applicationId = "com.securechat"
         minSdk = 26
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+    }
+
+    productFlavors {
+        create("dev") {
+            dimension = "env"
+            buildConfigField("String", "SIGNALING_HTTP_URL", "\"http://10.0.2.2:8081\"")
+            buildConfigField("String", "SIGNALING_WS_URL", "\"ws://10.0.2.2:8081/ws\"")
+        }
+
+        create("prod") {
+            dimension = "env"
+            buildConfigField("String", "SIGNALING_HTTP_URL", "\"https://signal.securechat.example.com\"")
+            buildConfigField("String", "SIGNALING_WS_URL", "\"wss://signal.securechat.example.com/ws\"")
+        }
     }
 
     buildTypes {
@@ -31,9 +47,38 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions { jvmTarget = "17" }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+}
 
-    buildFeatures { compose = true }
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+// Keep authored app sources Kotlin-only; generated sources under /build are excluded.
+val verifyKotlinOnlySource by tasks.registering {
+    doLast {
+        val sourceDirs = listOf("src/main/java", "src/main/kotlin", "src/debug/java", "src/debug/kotlin")
+            .map { file(it) }
+            .filter { it.exists() }
+
+        val javaFiles = sourceDirs.flatMap { dir ->
+            fileTree(dir) { include("**/*.java") }.files
+        }
+
+        if (javaFiles.isNotEmpty()) {
+            val offenders = javaFiles.joinToString(separator = "\n") { it.relativeTo(projectDir).path }
+            throw GradleException("Java source files are not allowed in app source sets:\n$offenders")
+        }
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn(verifyKotlinOnlySource)
 }
 
 dependencies {
@@ -71,6 +116,7 @@ dependencies {
 
     // ── WebRTC ───────────────────────────────────────────────────
     implementation(libs.webrtc)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // ── Coroutines ───────────────────────────────────────────────
     implementation(libs.kotlinx.coroutines.android)
@@ -81,4 +127,10 @@ dependencies {
 
     // ── DataStore (settings) ─────────────────────────────────────
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.biometric)
+
+    // ── Unit tests ───────────────────────────────────────────────
+    testImplementation(kotlin("test"))
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }
