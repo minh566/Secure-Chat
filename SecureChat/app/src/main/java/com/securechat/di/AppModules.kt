@@ -1,3 +1,4 @@
+
 package com.securechat.di
 
 import android.content.Context
@@ -66,3 +67,4 @@ internal object AuthTestingConfig {
 internal object DatabaseConfigPolicy {
     fun shouldUseDestructiveMigration(isDebug: Boolean): Boolean = isDebug
 }
+

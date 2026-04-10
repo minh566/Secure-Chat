@@ -1,3 +1,4 @@
+
 package com.securechat.ui.screens.home
 
 import androidx.compose.foundation.background
@@ -327,3 +328,4 @@ fun AvatarWithStatus(imageUrl: String?, name: String, isOnline: Boolean) {
         }
     }
 }
+

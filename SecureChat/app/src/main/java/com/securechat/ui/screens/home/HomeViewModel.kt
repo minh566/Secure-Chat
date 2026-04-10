@@ -1,3 +1,4 @@
+
 package com.securechat.ui.screens.home
 
 import androidx.lifecycle.ViewModel
@@ -224,3 +225,4 @@ class HomeViewModel @Inject constructor(
         }
     }
 }
+

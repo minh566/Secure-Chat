@@ -1,3 +1,4 @@
+
 package com.securechat.ui.screens.chat
 
 import androidx.compose.foundation.background
@@ -353,3 +354,4 @@ fun MessageBubble(message: Message, isMine: Boolean, currentUserId: String) {
         }
     }
 }
+

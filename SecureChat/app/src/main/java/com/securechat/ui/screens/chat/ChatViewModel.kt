@@ -1,3 +1,4 @@
+
 package com.securechat.ui.screens.chat
 
 import androidx.lifecycle.SavedStateHandle
@@ -205,3 +206,4 @@ class ChatViewModel @Inject constructor(
         }
     }
 }
+

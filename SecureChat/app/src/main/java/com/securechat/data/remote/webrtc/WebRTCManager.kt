@@ -1,3 +1,4 @@
+
 package com.securechat.data.remote.webrtc
 
 import android.content.Context
@@ -566,3 +567,4 @@ open class SdpObserverAdapter : SdpObserver {
     override fun onCreateFailure(error: String?) {}
     override fun onSetFailure(error: String?) {}
 }
+
