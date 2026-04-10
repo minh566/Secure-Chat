@@ -178,10 +178,12 @@ fun HomeScreen(
                         items = uiState.rooms,
                         key   = { it.id }
                     ) { room ->
+                        val displayRoomName = room.displayNameFor(user?.uid.orEmpty())
                         RoomItem(
                             room    = room,
+                            roomDisplayName = displayRoomName,
                             currentUserId = user?.uid ?: "",
-                            onClick = { onOpenChat(room.id, room.name) },
+                            onClick = { onOpenChat(room.id, displayRoomName) },
                             onLongClick = { viewModel.showDeleteRoomDialog(room.id) } // Needs to be added to view model
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
@@ -283,7 +285,13 @@ fun HomeScreen(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RoomItem(room: ChatRoom, currentUserId: String, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun RoomItem(
+    room: ChatRoom,
+    roomDisplayName: String,
+    currentUserId: String,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val unread = room.unreadCount[currentUserId] ?: 0
     val isUnread = unread > 0
@@ -297,7 +305,7 @@ private fun RoomItem(room: ChatRoom, currentUserId: String, onClick: () -> Unit,
             )
         },
         headlineContent = {
-            Text(room.name, style = MaterialTheme.typography.titleMedium, fontWeight = if (isUnread) androidx.compose.ui.text.font.FontWeight.Bold else null)
+            Text(roomDisplayName, style = MaterialTheme.typography.titleMedium, fontWeight = if (isUnread) androidx.compose.ui.text.font.FontWeight.Bold else null)
         },
         supportingContent = {
             val prefix = if (isMine) "Bạn: " else ""
@@ -318,7 +326,7 @@ private fun RoomItem(room: ChatRoom, currentUserId: String, onClick: () -> Unit,
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        text = room.name.take(1).uppercase(),
+                        text = roomDisplayName.take(1).uppercase(),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
@@ -341,6 +349,15 @@ private fun RoomItem(room: ChatRoom, currentUserId: String, onClick: () -> Unit,
             }
         }
     )
+}
+
+private fun ChatRoom.displayNameFor(currentUserId: String): String {
+    if (isGroup) return name
+    val otherMemberId = members.firstOrNull { it != currentUserId }
+    val otherName = otherMemberId
+        ?.let { memberNames[it] }
+        ?.takeIf { it.isNotBlank() }
+    return otherName ?: name
 }
 
 val PrimaryGreen = Color(0xFF4CAF50)

@@ -21,6 +21,7 @@
         android:label="SecureChat"
         android:theme="@style/Theme.SecureChat"
         android:supportsRtl="true"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="false">
 
         <!-- ── MainActivity ─────────────────────────────────────────────── -->

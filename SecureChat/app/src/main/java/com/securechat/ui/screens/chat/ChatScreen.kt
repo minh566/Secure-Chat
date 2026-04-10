@@ -17,10 +17,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.securechat.domain.model.ChatRoom
 import com.securechat.domain.model.Message
 import com.securechat.domain.repository.AuthRepository
 import java.text.SimpleDateFormat
@@ -40,6 +40,7 @@ fun ChatScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val currentUserId = authRepository.currentUser?.uid ?: ""
+    val displayRoomName = uiState.chatRoom?.displayNameFor(currentUserId) ?: roomName
 
     LaunchedEffect(uiState.messages.size) {
         if (uiState.messages.isNotEmpty()) {
@@ -51,7 +52,7 @@ fun ChatScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(roomName, style = MaterialTheme.typography.titleLarge) },
+                title = { Text(displayRoomName, style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại")
@@ -239,6 +240,15 @@ fun ChatScreen(
             )
         }
     }
+}
+
+private fun ChatRoom.displayNameFor(currentUserId: String): String {
+    if (isGroup) return name
+    val otherMemberId = members.firstOrNull { it != currentUserId }
+    val otherName = otherMemberId
+        ?.let { memberNames[it] }
+        ?.takeIf { it.isNotBlank() }
+    return otherName ?: name
 }
 
 @Composable

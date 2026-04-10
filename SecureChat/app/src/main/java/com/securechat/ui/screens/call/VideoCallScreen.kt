@@ -27,6 +27,33 @@ fun VideoCallScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val eglContext = viewModel.getEglContext()
+    var remoteRendererRef by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
+    var localRendererRef by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.clearLocalSink()
+            viewModel.clearRemoteSink()
+
+            localRendererRef?.let { renderer ->
+                runCatching {
+                    renderer.clearImage()
+                    renderer.release()
+                }
+                localRendererRef = null
+                viewModel.onLocalRendererReleased()
+            }
+
+            remoteRendererRef?.let { renderer ->
+                runCatching {
+                    renderer.clearImage()
+                    renderer.release()
+                }
+                remoteRendererRef = null
+                viewModel.onRemoteRendererReleased()
+            }
+        }
+    }
 
     LaunchedEffect(uiState.status) {
         if (uiState.status == CallStatus.ENDED ||
@@ -51,9 +78,19 @@ fun VideoCallScreen(
                     setEnableHardwareScaler(true)
                     // Đăng ký sink với WebRTCManager
                     viewModel.setRemoteSink(this)
+                    remoteRendererRef = this
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            onRelease = { renderer ->
+                viewModel.clearRemoteSink()
+                runCatching {
+                    renderer.clearImage()
+                    renderer.release()
+                }
+                remoteRendererRef = null
+                viewModel.onRemoteRendererReleased()
+            }
         )
 
         // ── LOCAL VIDEO (Màn hình nhỏ góc trên) ──
@@ -75,9 +112,19 @@ fun VideoCallScreen(
                             setMirror(true)
                             // Đăng ký sink với WebRTCManager
                             viewModel.setLocalSink(this)
+                            localRendererRef = this
                         }
                     },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    onRelease = { renderer ->
+                        viewModel.clearLocalSink()
+                        runCatching {
+                            renderer.clearImage()
+                            renderer.release()
+                        }
+                        localRendererRef = null
+                        viewModel.onLocalRendererReleased()
+                    }
                 )
             }
         }
