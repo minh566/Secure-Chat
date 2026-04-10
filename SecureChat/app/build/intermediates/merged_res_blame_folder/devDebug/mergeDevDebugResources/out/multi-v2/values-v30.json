@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.securechat.app-mergeDevDebugResources-78:/values-v30/values-v30.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\admin\\.gradle\\caches\\8.9\\transforms\\a5789a47bc695c552a374a28ae3e9c31\\transformed\\jetified-material3-release\\res\\values-v30\\values-v30.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "72",
+                        "endOffsets": "123"
+                    }
+                }
+            ]
+        }
+    ]
+}

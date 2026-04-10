@@ -127,6 +127,7 @@ dependencies {
 
     // ── DataStore (settings) ─────────────────────────────────────
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.biometric)
 
     // ── Unit tests ───────────────────────────────────────────────
     testImplementation(kotlin("test"))
