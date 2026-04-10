@@ -1,9 +1,9 @@
 package com.securechat.ui.screens.home
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,43 +13,35 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.securechat.domain.model.ChatRoom
 import java.text.SimpleDateFormat
 import java.util.Locale
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import coil.compose.AsyncImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onOpenChat: (roomId: String, roomName: String) -> Unit,
-    onOpenSettings: () -> Unit,
+    onSignedOut: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val user = viewModel.currentUser
-
-    LaunchedEffect(uiState.infoMessage) {
-        if (uiState.infoMessage != null) {
-            kotlinx.coroutines.delay(1800)
-            viewModel.clearInfoMessage()
-        }
-    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("SecureChat") },
                 actions = {
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Cài đặt")
+                    IconButton(onClick = { viewModel.signOut(onSignedOut) }) {
+                        Icon(Icons.Default.Logout, contentDescription = "Đăng xuất")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -59,7 +51,7 @@ fun HomeScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = viewModel::showCreateDialog) {
-                Icon(Icons.Default.PersonAdd, contentDescription = "Ket ban")
+                Icon(Icons.Default.Add, contentDescription = "Kết bạn")
             }
         }
     ) { padding ->
@@ -68,56 +60,6 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            uiState.infoMessage?.let { message ->
-                Surface(
-                    color = MaterialTheme.colorScheme.tertiaryContainer,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-                    )
-                }
-            }
-
-            if (uiState.incomingRequests.isNotEmpty()) {
-                Text(
-                    text = "Loi moi ket ban",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp)
-                )
-
-                uiState.incomingRequests.forEach { requestUser ->
-                    ListItem(
-                        headlineContent = { Text(requestUser.displayName) },
-                        supportingContent = { Text(requestUser.email) },
-                        leadingContent = {
-                            AvatarWithStatus(
-                                imageUrl = requestUser.photoUrl,
-                                name = requestUser.displayName,
-                                isOnline = requestUser.isOnline
-                            )
-                        },
-                        trailingContent = {
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                TextButton(onClick = { viewModel.rejectFriendRequest(requestUser) }) {
-                                    Text("Tu choi")
-                                }
-                                Button(onClick = { viewModel.acceptFriendRequest(requestUser) }) {
-                                    Text("Dong y")
-                                }
-                            }
-                        }
-                    )
-                }
-
-                HorizontalDivider()
-            }
-
             user?.let {
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
@@ -166,7 +108,7 @@ fun HomeScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            "Nhan + de ket ban va bat dau tro chuyen",
+                            "Nhấn + để tạo phòng mới",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -178,13 +120,15 @@ fun HomeScreen(
                         items = uiState.rooms,
                         key   = { it.id }
                     ) { room ->
+                        val myUid = user?.uid ?: "me"
                         val displayRoomName = room.displayNameFor(user?.uid.orEmpty())
+                        
                         RoomItem(
-                            room    = room,
+                            room = room,
                             roomDisplayName = displayRoomName,
-                            currentUserId = user?.uid ?: "",
+                            unreadForMe = room.unreadCount[myUid] ?: 0,
                             onClick = { onOpenChat(room.id, displayRoomName) },
-                            onLongClick = { viewModel.showDeleteRoomDialog(room.id) } // Needs to be added to view model
+                            onLongClick = { viewModel.showDeleteRoomDialog(room.id) }
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
                     }
@@ -195,47 +139,53 @@ fun HomeScreen(
         if (uiState.showCreateDialog) {
             AlertDialog(
                 onDismissRequest = viewModel::dismissCreateDialog,
-                title   = { Text("Gui loi moi ket ban") },
+                title   = { Text("Gửi lời mời kết bạn") },
                 text    = {
                     Column {
                         OutlinedTextField(
                             value = uiState.searchQuery,
                             onValueChange = viewModel::onSearchQueryChange,
-                            label = { Text("Tim kiem nguoi dung") },
+                            label = { Text("Tên hoặc email") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-
-                        Spacer(Modifier.height(8.dp))
-
-                        uiState.selectedUser?.let { selected ->
-                            Text(
-                                text = "Da chon: ${selected.displayName}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                        if (uiState.searchQuery.isNotBlank()) {
                             Spacer(Modifier.height(8.dp))
-                        }
-
-                        uiState.searchResults.take(6).forEach { user ->
-                            ListItem(
-                                headlineContent = { Text(user.displayName) },
-                                supportingContent = { Text(user.email) },
-                                leadingContent = {
-                                    AvatarWithStatus(
-                                        imageUrl = user.photoUrl,
-                                        name = user.displayName,
-                                        isOnline = user.isOnline
-                                    )
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .pointerInput(user.uid) {
-                                        detectTapGestures(onTap = { viewModel.onUserSelected(user) })
+                            if (uiState.searchResults.isEmpty() && uiState.selectedUser == null) {
+                                Text(
+                                    text = "Không tìm thấy người dùng phù hợp",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Surface(
+                                    shape = MaterialTheme.shapes.medium,
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column {
+                                        uiState.searchResults.take(5).forEach { item ->
+                                            ListItem(
+                                                modifier = Modifier.clickable { viewModel.onUserSelected(item) },
+                                                headlineContent = { Text(item.displayName) },
+                                                supportingContent = { Text(item.email) },
+                                                leadingContent = {
+                                                    Icon(Icons.Default.Person, contentDescription = null)
+                                                }
+                                            )
+                                            HorizontalDivider()
+                                        }
                                     }
+                                }
+                            }
+                        }
+                        uiState.selectedUser?.let {
+                            Text(
+                                text = "Đã chọn: ${it.displayName}",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 8.dp)
                             )
                         }
-
                         if (uiState.errorMessage != null) {
                             Text(
                                 text = uiState.errorMessage!!,
@@ -250,70 +200,47 @@ fun HomeScreen(
                     TextButton(
                         onClick  = viewModel::sendFriendRequest,
                         enabled  = uiState.selectedUser != null && !uiState.isCreating
-                    ) {
+                    ) { 
                         if (uiState.isCreating) CircularProgressIndicator(Modifier.size(16.dp))
-                        else Text("Gui loi moi")
+                        else Text("Gửi") 
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = viewModel::dismissCreateDialog) { Text("Huy") }
-                }
-            )
-        }
-
-        if (uiState.roomToDeleteId != null) {
-            AlertDialog(
-                onDismissRequest = viewModel::dismissDeleteRoomDialog,
-                title = { Text("Xóa phòng chat") },
-                text = { Text("Bạn có chắc chắn muốn xóa phòng chat này không? Tất cả tin nhắn sẽ bị xóa vĩnh viễn.") },
-                confirmButton = {
-                    TextButton(
-                        onClick = { viewModel.deleteRoom(uiState.roomToDeleteId!!) }
-                    ) {
-                        Text("Xóa", color = MaterialTheme.colorScheme.error)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = viewModel::dismissDeleteRoomDialog) {
-                        Text("Hủy")
-                    }
+                    TextButton(onClick = viewModel::dismissCreateDialog) { Text("Hủy") }
                 }
             )
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun RoomItem(
     room: ChatRoom,
     roomDisplayName: String,
-    currentUserId: String,
+    unreadForMe: Int,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    val unread = room.unreadCount[currentUserId] ?: 0
-    val isUnread = unread > 0
-    val isMine = room.lastMessage?.senderId == currentUserId
 
     ListItem(
-        modifier = Modifier.pointerInput(Unit) {
-            detectTapGestures(
-                onTap = { onClick() },
-                onLongPress = { onLongClick() }
+        modifier = Modifier.combinedClickable(
+            onClick = onClick,
+            onLongClick = onLongClick
+        ),
+        headlineContent = {
+            Text(
+                text = roomDisplayName, 
+                style = MaterialTheme.typography.titleMedium, 
+                fontWeight = if (unreadForMe > 0) androidx.compose.ui.text.font.FontWeight.Bold else null
             )
         },
-        headlineContent = {
-            Text(roomDisplayName, style = MaterialTheme.typography.titleMedium, fontWeight = if (isUnread) androidx.compose.ui.text.font.FontWeight.Bold else null)
-        },
         supportingContent = {
-            val prefix = if (isMine) "Bạn: " else ""
             Text(
-                text = prefix + (room.lastMessage?.content ?: "Chưa có tin nhắn"),
+                text = room.lastMessage?.content ?: "Chưa có tin nhắn",
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (isMine) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = if (isUnread && !isMine) androidx.compose.ui.text.font.FontWeight.Bold else null,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -342,9 +269,9 @@ private fun RoomItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (unread > 0) {
+                if (unreadForMe > 0) {
                     Spacer(Modifier.height(4.dp))
-                    Badge { Text(unread.toString()) }
+                    Badge { Text(unreadForMe.toString()) }
                 }
             }
         }
