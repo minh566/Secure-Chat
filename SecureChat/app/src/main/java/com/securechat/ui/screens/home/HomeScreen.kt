@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -37,6 +36,13 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val user = viewModel.currentUser
 
+    LaunchedEffect(uiState.infoMessage) {
+        if (uiState.infoMessage != null) {
+            kotlinx.coroutines.delay(1800)
+            viewModel.clearInfoMessage()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -53,7 +59,7 @@ fun HomeScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = viewModel::showCreateDialog) {
-                Icon(Icons.Default.Add, contentDescription = "Tạo phòng")
+                Icon(Icons.Default.PersonAdd, contentDescription = "Ket ban")
             }
         }
     ) { padding ->
@@ -62,6 +68,56 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            uiState.infoMessage?.let { message ->
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                    )
+                }
+            }
+
+            if (uiState.incomingRequests.isNotEmpty()) {
+                Text(
+                    text = "Loi moi ket ban",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp)
+                )
+
+                uiState.incomingRequests.forEach { requestUser ->
+                    ListItem(
+                        headlineContent = { Text(requestUser.displayName) },
+                        supportingContent = { Text(requestUser.email) },
+                        leadingContent = {
+                            AvatarWithStatus(
+                                imageUrl = requestUser.photoUrl,
+                                name = requestUser.displayName,
+                                isOnline = requestUser.isOnline
+                            )
+                        },
+                        trailingContent = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                TextButton(onClick = { viewModel.rejectFriendRequest(requestUser) }) {
+                                    Text("Tu choi")
+                                }
+                                Button(onClick = { viewModel.acceptFriendRequest(requestUser) }) {
+                                    Text("Dong y")
+                                }
+                            }
+                        }
+                    )
+                }
+
+                HorizontalDivider()
+            }
+
             user?.let {
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
@@ -110,7 +166,7 @@ fun HomeScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            "Nhấn + để tạo phòng mới",
+                            "Nhan + de ket ban va bat dau tro chuyen",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -137,16 +193,47 @@ fun HomeScreen(
         if (uiState.showCreateDialog) {
             AlertDialog(
                 onDismissRequest = viewModel::dismissCreateDialog,
-                title   = { Text("Tạo phòng chat mới") },
+                title   = { Text("Gui loi moi ket ban") },
                 text    = {
                     Column {
                         OutlinedTextField(
-                            value = uiState.newRoomName,
-                            onValueChange = viewModel::onNewRoomNameChange,
-                            label = { Text("Tên phòng") },
+                            value = uiState.searchQuery,
+                            onValueChange = viewModel::onSearchQueryChange,
+                            label = { Text("Tim kiem nguoi dung") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        uiState.selectedUser?.let { selected ->
+                            Text(
+                                text = "Da chon: ${selected.displayName}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+
+                        uiState.searchResults.take(6).forEach { user ->
+                            ListItem(
+                                headlineContent = { Text(user.displayName) },
+                                supportingContent = { Text(user.email) },
+                                leadingContent = {
+                                    AvatarWithStatus(
+                                        imageUrl = user.photoUrl,
+                                        name = user.displayName,
+                                        isOnline = user.isOnline
+                                    )
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pointerInput(user.uid) {
+                                        detectTapGestures(onTap = { viewModel.onUserSelected(user) })
+                                    }
+                            )
+                        }
+
                         if (uiState.errorMessage != null) {
                             Text(
                                 text = uiState.errorMessage!!,
@@ -159,15 +246,15 @@ fun HomeScreen(
                 },
                 confirmButton = {
                     TextButton(
-                        onClick  = viewModel::createRoom,
-                        enabled  = uiState.newRoomName.isNotBlank() && !uiState.isCreating
-                    ) { 
+                        onClick  = viewModel::sendFriendRequest,
+                        enabled  = uiState.selectedUser != null && !uiState.isCreating
+                    ) {
                         if (uiState.isCreating) CircularProgressIndicator(Modifier.size(16.dp))
-                        else Text("Tạo") 
+                        else Text("Gui loi moi")
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = viewModel::dismissCreateDialog) { Text("Hủy") }
+                    TextButton(onClick = viewModel::dismissCreateDialog) { Text("Huy") }
                 }
             )
         }

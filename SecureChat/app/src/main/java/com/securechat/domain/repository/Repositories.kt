@@ -35,6 +35,10 @@ interface UserRepository {
     suspend fun getUser(uid: String): Resource<User>
     fun getUserOnlineStatus(uid: String): Flow<Boolean>
     suspend fun setOnlineStatus(isOnline: Boolean): Resource<Unit>
+    fun observeIncomingFriendRequests(): Flow<Resource<List<User>>>
+    suspend fun sendFriendRequest(targetUserId: String): Resource<Unit>
+    suspend fun acceptFriendRequest(fromUserId: String): Resource<Unit>
+    suspend fun rejectFriendRequest(fromUserId: String): Resource<Unit>
 }
 
 interface CallRepository {

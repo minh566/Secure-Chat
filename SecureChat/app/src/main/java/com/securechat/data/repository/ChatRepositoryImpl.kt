@@ -52,10 +52,27 @@ class ChatRepositoryImpl @Inject constructor(
         isGroup: Boolean
     ): Resource<ChatRoom> {
         return try {
+            val directMembers = memberIds.distinct()
+            if (!isGroup && directMembers.size == 2) {
+                val firstUserId = directMembers.first()
+                val existing = firestore.collection("rooms")
+                    .whereEqualTo("isGroup", false)
+                    .whereArrayContains("members", firstUserId)
+                    .get()
+                    .await()
+                    .documents
+                    .mapNotNull { it.toObject(ChatRoom::class.java)?.copy(id = it.id) }
+                    .firstOrNull { room -> room.members.toSet() == directMembers.toSet() }
+
+                if (existing != null) {
+                    return Resource.Success(existing)
+                }
+            }
+
             val names = mutableMapOf<String, String>()
             val photos = mutableMapOf<String, String>()
-            
-            for (id in memberIds) {
+
+            for (id in directMembers) {
                 val userResult = userRepository.getUser(id)
                 if (userResult is Resource.Success) {
                     names[id] = userResult.data.displayName
@@ -66,7 +83,7 @@ class ChatRepositoryImpl @Inject constructor(
             val room = ChatRoom(
                 id       = UUID.randomUUID().toString(),
                 name     = name,
-                members  = memberIds,
+                members  = directMembers,
                 memberNames = names,
                 memberPhotos = photos,
                 isGroup  = isGroup

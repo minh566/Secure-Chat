@@ -21,12 +21,13 @@ data class HomeUiState(
     val rooms: List<ChatRoom> = emptyList(),
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
+    val infoMessage: String? = null,
     val showCreateDialog: Boolean = false,
-    val newRoomName: String = "",
     val isCreating: Boolean = false,
     val searchQuery: String = "",
     val searchResults: List<User> = emptyList(),
     val selectedUser: User? = null,
+    val incomingRequests: List<User> = emptyList(),
     val deletingRoomId: String? = null,
     val roomToDeleteId: String? = null
 )
@@ -50,6 +51,7 @@ class HomeViewModel @Inject constructor(
     init {
         loadRooms()
         setupSearch()
+        observeIncomingFriendRequests()
     }
 
     private fun loadRooms() {
@@ -64,6 +66,18 @@ class HomeViewModel @Inject constructor(
                     is Resource.Error -> _uiState.update {
                         it.copy(isLoading = false, errorMessage = result.message)
                     }
+                }
+            }
+        }
+    }
+
+    private fun observeIncomingFriendRequests() {
+        viewModelScope.launch {
+            userRepository.observeIncomingFriendRequests().collect { result ->
+                when (result) {
+                    is Resource.Success -> _uiState.update { it.copy(incomingRequests = result.data) }
+                    is Resource.Error -> _uiState.update { it.copy(errorMessage = result.message) }
+                    else -> Unit
                 }
             }
         }
@@ -87,56 +101,90 @@ class HomeViewModel @Inject constructor(
             .launchIn(viewModelScope)
     }
 
-    fun onNewRoomNameChange(name: String) = _uiState.update { it.copy(newRoomName = name) }
-    fun onSearchQueryChange(query: String) = _uiState.update { it.copy(searchQuery = query) }
-    
+    fun onSearchQueryChange(query: String) = _uiState.update {
+        it.copy(searchQuery = query, selectedUser = null, infoMessage = null)
+    }
+
     fun onUserSelected(user: User) {
-        _uiState.update { it.copy(selectedUser = user, newRoomName = user.displayName) }
+        _uiState.update {
+            it.copy(
+                selectedUser = user,
+                searchQuery = user.displayName,
+                searchResults = emptyList(),
+                errorMessage = null,
+                infoMessage = null
+            )
+        }
     }
 
     fun showCreateDialog() = _uiState.update { it.copy(showCreateDialog = true) }
-    
-    fun dismissCreateDialog() = _uiState.update { 
+
+    fun dismissCreateDialog() = _uiState.update {
         it.copy(
-            showCreateDialog = false, 
-            newRoomName = "", 
-            searchQuery = "", 
-            searchResults = emptyList(), 
+            showCreateDialog = false,
+            searchQuery = "",
+            searchResults = emptyList(),
             selectedUser = null,
-            errorMessage = null
-        ) 
+            errorMessage = null,
+            infoMessage = null
+        )
     }
 
-    fun createRoom() {
-        val currentUser = authRepository.currentUser ?: return
+    fun sendFriendRequest() {
         val selectedUser = _uiState.value.selectedUser
-        val name = _uiState.value.newRoomName.trim()
-
-        if (name.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Vui lòng nhập tên phòng") }
+        if (selectedUser == null) {
+            _uiState.update { it.copy(errorMessage = "Vui long chon nguoi ban muon ket ban") }
             return
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isCreating = true) }
-            
-            // QUAN TRỌNG: Thêm cả 2 người vào danh sách members
-            val memberIds = if (selectedUser != null) {
-                listOf(currentUser.uid, selectedUser.uid)
-            } else {
-                listOf(currentUser.uid)
-            }
-            
-            val result = createRoomUseCase(name, memberIds, selectedUser == null)
+            _uiState.update { it.copy(isCreating = true, errorMessage = null, infoMessage = null) }
+            val result = userRepository.sendFriendRequest(selectedUser.uid)
             _uiState.update { it.copy(isCreating = false) }
-            
-            if (result is Resource.Success) {
-                dismissCreateDialog()
-            } else if (result is Resource.Error) {
-                _uiState.update { it.copy(errorMessage = result.message) }
+
+            when (result) {
+                is Resource.Success -> {
+                    _uiState.update {
+                        it.copy(
+                            infoMessage = "Da gui loi moi ket ban, cho doi phuong xac nhan",
+                            searchQuery = "",
+                            searchResults = emptyList(),
+                            selectedUser = null,
+                            showCreateDialog = false
+                        )
+                    }
+                }
+                is Resource.Error -> _uiState.update { it.copy(errorMessage = result.message) }
+                else -> Unit
             }
         }
     }
+
+    fun acceptFriendRequest(user: User) {
+        val current = authRepository.currentUser ?: return
+        viewModelScope.launch {
+            when (val result = userRepository.acceptFriendRequest(user.uid)) {
+                is Resource.Success -> {
+                    createRoomUseCase(user.displayName, listOf(current.uid, user.uid), isGroup = false)
+                    _uiState.update { it.copy(infoMessage = "Da chap nhan loi moi ket ban") }
+                }
+                is Resource.Error -> _uiState.update { it.copy(errorMessage = result.message) }
+                else -> Unit
+            }
+        }
+    }
+
+    fun rejectFriendRequest(user: User) {
+        viewModelScope.launch {
+            when (val result = userRepository.rejectFriendRequest(user.uid)) {
+                is Resource.Success -> _uiState.update { it.copy(infoMessage = "Da tu choi loi moi ket ban") }
+                is Resource.Error -> _uiState.update { it.copy(errorMessage = result.message) }
+                else -> Unit
+            }
+        }
+    }
+
+    fun clearInfoMessage() = _uiState.update { it.copy(infoMessage = null) }
 
     fun showDeleteRoomDialog(roomId: String) {
         _uiState.update { it.copy(roomToDeleteId = roomId) }
@@ -162,12 +210,8 @@ class HomeViewModel @Inject constructor(
 
     fun signOut(onDone: () -> Unit) {
         viewModelScope.launch {
-            try {
-                signOutUseCase()
-                onDone()
-            } catch (e: Exception) {
-                onDone()
-            }
+            runCatching { signOutUseCase() }
+            onDone()
         }
     }
 }

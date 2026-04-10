@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.1.0"
+    kotlin("jvm")
     application
 }
 
@@ -44,4 +44,3 @@ val verifyKotlinOnlySource by tasks.registering {
 tasks.named("classes") {
     dependsOn(verifyKotlinOnlySource)
 }
-
