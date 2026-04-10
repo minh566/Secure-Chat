@@ -57,7 +57,7 @@ class MainActivity : ComponentActivity() {
 
                                     handledIncomingSessionId.value = it.id
                                     navController.navigate(
-                                        Screen.Call.go(it.id, "Cuộc gọi đến", false)
+                                        Screen.Call.go(it.id, "Cuộc gọi đến", false, it.callerId)
                                     ) {
                                         launchSingleTop = true
                                     }
@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
 
                             handledIncomingSessionId.value = payload.sessionId
                             navController.navigate(
-                                Screen.Call.go(payload.sessionId, payload.callerName, false)
+                                Screen.Call.go(payload.sessionId, payload.callerName, false, payload.peerId)
                             ) {
                                 launchSingleTop = true
                             }

@@ -1,12 +1,6 @@
 package com.securechat.data.repository
 
-import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseAuthException
-import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
-import com.google.firebase.auth.FirebaseAuthUserCollisionException
-import com.google.firebase.auth.FirebaseAuthWeakPasswordException
-import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.FirebaseFirestore
 import com.securechat.data.mapper.toUser
 import com.securechat.domain.model.AuthResult
@@ -33,10 +27,6 @@ class AuthRepositoryImpl @Inject constructor(
             val result = firebaseAuth.signInWithEmailAndPassword(email, password).await()
             val user = result.user?.toUser() ?: return AuthResult.Error("Đăng nhập thất bại")
             AuthResult.Success(user)
-        } catch (e: FirebaseNetworkException) {
-            AuthResult.Error("Lỗi mạng. Hãy kiểm tra kết nối Internet và cấu hình Firebase.")
-        } catch (e: FirebaseAuthInvalidCredentialsException) {
-            AuthResult.Error("Email hoặc mật khẩu không hợp lệ.")
         } catch (e: Exception) {
             AuthResult.Error(e.localizedMessage ?: "Lỗi không xác định")
         }
@@ -51,48 +41,24 @@ class AuthRepositoryImpl @Inject constructor(
             val result = firebaseAuth.createUserWithEmailAndPassword(email, password).await()
             val firebaseUser = result.user ?: return AuthResult.Error("Tạo tài khoản thất bại")
 
-            try {
-                val profileUpdates = com.google.firebase.auth.userProfileChangeRequest {
-                    this.displayName = displayName
-                }
-                firebaseUser.updateProfile(profileUpdates).await()
-            } catch (e: Exception) {
-                // Không chặn signup nếu chỉ lỗi cập nhật displayName
+            // Cập nhật displayName
+            val profileUpdates = com.google.firebase.auth.userProfileChangeRequest {
+                this.displayName = displayName
             }
+            firebaseUser.updateProfile(profileUpdates).await()
 
+            // Lưu user vào Firestore collection "users"
             val user = User(
                 uid = firebaseUser.uid,
                 displayName = displayName,
                 email = email
             )
-
-            try {
-                firestore.collection("users")
-                    .document(firebaseUser.uid)
-                    .set(user)
-                    .await()
-            } catch (e: FirebaseFirestoreException) {
-                return when (e.code) {
-                    FirebaseFirestoreException.Code.PERMISSION_DENIED ->
-                        AuthResult.Error("Đăng ký được nhưng không lưu được hồ sơ Firestore. Kiểm tra `firestore.rules`.")
-                    FirebaseFirestoreException.Code.UNAVAILABLE,
-                    FirebaseFirestoreException.Code.DEADLINE_EXCEEDED ->
-                        AuthResult.Error("Đăng ký được nhưng Firestore chưa kết nối. Kiểm tra Internet/Firebase project.")
-                    else -> AuthResult.Error(e.localizedMessage ?: "Không lưu được hồ sơ người dùng")
-                }
-            }
+            firestore.collection("users")
+                .document(firebaseUser.uid)
+                .set(user)
+                .await()
 
             AuthResult.Success(user)
-        } catch (e: FirebaseAuthWeakPasswordException) {
-            AuthResult.Error("Mật khẩu phải có ít nhất 6 ký tự.")
-        } catch (e: FirebaseAuthUserCollisionException) {
-            AuthResult.Error("Email này đã được đăng ký.")
-        } catch (e: FirebaseAuthInvalidCredentialsException) {
-            AuthResult.Error("Email không hợp lệ hoặc mật khẩu không đúng định dạng.")
-        } catch (e: FirebaseNetworkException) {
-            AuthResult.Error("Không kết nối được Firebase. Kiểm tra Internet, API key hoặc dịch vụ Google trên máy/emulator.")
-        } catch (e: FirebaseAuthException) {
-            AuthResult.Error("FirebaseAuth(${e.errorCode}): ${e.localizedMessage ?: "Lỗi xác thực"}")
         } catch (e: Exception) {
             AuthResult.Error(e.localizedMessage ?: "Lỗi không xác định")
         }
