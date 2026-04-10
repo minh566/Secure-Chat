@@ -86,7 +86,7 @@ class FakeRepository @Inject constructor() {
         // Update room's last message
         _rooms.update { rooms ->
             rooms.map { room ->
-                if (room.id == roomId) room.copy(lastMessage = newMessage, unreadCount = emptyMap())
+                if (room.id == roomId) room.copy(lastMessage = newMessage, unreadCount = room.unreadCount + ("me" to 0))
                 else room
             }
         }
