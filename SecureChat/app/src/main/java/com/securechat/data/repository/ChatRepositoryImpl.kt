@@ -19,6 +19,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
+import java.util.Date
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -48,7 +49,9 @@ class ChatRepositoryImpl @Inject constructor(
                     }.getOrNull()
                 } ?: emptyList()
                 
-                val sortedRooms = rooms.sortedByDescending { it.lastMessage?.createdAt }
+                val sortedRooms = rooms.sortedWith(
+                    compareByDescending<ChatRoom> { it.lastMessage?.createdAt ?: Date(0) }
+                )
                 trySend(Resource.Success(sortedRooms))
             }
         awaitClose { listener.remove() }
