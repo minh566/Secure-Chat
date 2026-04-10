@@ -1,7 +1,9 @@
 package com.securechat.ui.screens.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -16,10 +18,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.securechat.domain.model.ChatRoom
 import java.util.Calendar
 import java.util.Date
@@ -290,11 +296,15 @@ fun HomeScreen(
                         items = filteredRooms,
                         key = { it.id }
                     ) { room ->
+                        val displayRoomName = room.displayNameFor(myUid)
+                        
                         RoomItem(
                             room = room,
+                            roomDisplayName = displayRoomName,
                             unreadForMe = room.unreadCount[myUid] ?: 0,
                             myUid = myUid,
-                            onClick = { onOpenChat(room.id, room.name) }
+                            onClick = { onOpenChat(room.id, displayRoomName) },
+                            onLongClick = { viewModel.showDeleteRoomDialog(room.id) }
                         )
                     }
                 }
@@ -392,8 +402,16 @@ fun HomeScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun RoomItem(room: ChatRoom, unreadForMe: Int, myUid: String, onClick: () -> Unit) {
+private fun RoomItem(
+    room: ChatRoom,
+    roomDisplayName: String,
+    unreadForMe: Int,
+    myUid: String,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val previewText = remember(room, myUid) { buildPreviewText(room, myUid) }
     val timeText = remember(room) { formatRoomTime(room.lastMessage?.createdAt ?: room.createdAt, timeFormat) }
@@ -401,7 +419,10 @@ private fun RoomItem(room: ChatRoom, unreadForMe: Int, myUid: String, onClick: (
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 1.dp
@@ -412,15 +433,16 @@ private fun RoomItem(room: ChatRoom, unreadForMe: Int, myUid: String, onClick: (
         ) {
             UserAvatar(
                 url = room.photoUrl,
-                name = room.name,
+                name = roomDisplayName,
                 size = 56.dp
             )
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = room.name,
+                        text = roomDisplayName,
                         style = MaterialTheme.typography.titleMedium,
+                        fontWeight = if (unreadForMe > 0) FontWeight.Bold else null,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -677,3 +699,57 @@ private fun formatRoomTime(date: Date, formatter: SimpleDateFormat): String {
 
 private enum class RoomFilter { ALL, UNREAD, GROUPS }
 
+private fun ChatRoom.displayNameFor(currentUserId: String): String {
+    if (isGroup) return name
+    val otherMemberId = members.firstOrNull { it != currentUserId }
+    val otherName = otherMemberId
+        ?.let { memberNames[it] }
+        ?.takeIf { it.isNotBlank() }
+    return otherName ?: name
+}
+
+val PrimaryGreen = Color(0xFF4CAF50)
+
+@Composable
+fun AvatarWithStatus(
+    imageUrl: String?, 
+    name: String, 
+    isOnline: Boolean = false,
+    size: androidx.compose.ui.unit.Dp = 40.dp
+) {
+    Box {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(size)
+        ) {
+            if (!imageUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = name.take(1).uppercase(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+        }
+        if (isOnline) {
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .align(Alignment.BottomEnd)
+                    .background(PrimaryGreen, CircleShape)
+                    .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+            )
+        }
+    }
+}

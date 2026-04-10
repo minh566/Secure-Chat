@@ -13,14 +13,15 @@ import com.securechat.domain.repository.UserRepository
 import com.securechat.domain.usecase.chat.AddMembersToRoomUseCase
 import com.securechat.domain.usecase.chat.GetMessagesUseCase
 import com.securechat.domain.usecase.chat.SendMessageUseCase
+import com.securechat.ui.common.toSearchResourceState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -55,6 +56,12 @@ class ChatViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    private val memberSearchResource = _uiState
+        .map { it.memberSearchQuery }
+        .toSearchResourceState(viewModelScope) { query ->
+            userRepository.searchUsers(query)
+        }
 
     init {
         loadMessages()
@@ -181,24 +188,20 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun setupMemberSearch() {
-        _uiState
-            .map { it.memberSearchQuery.trim() }
-            .debounce(300)
-            .distinctUntilChanged()
-            .onEach { query ->
-                if (query.isBlank()) {
-                    _uiState.update { it.copy(memberSearchResults = emptyList()) }
-                    return@onEach
-                }
-
-                userRepository.searchUsers(query).collectLatest { result ->
-                    if (result is Resource.Success) {
+        viewModelScope.launch {
+            memberSearchResource.collectLatest { result ->
+                when (result) {
+                    is Resource.Success -> {
                         val roomMembers = _uiState.value.chatRoom?.members?.toSet().orEmpty()
                         val filtered = result.data.filter { it.uid !in roomMembers }
                         _uiState.update { it.copy(memberSearchResults = filtered) }
                     }
+                    is Resource.Error -> _uiState.update {
+                        it.copy(memberSearchResults = emptyList(), errorMessage = result.message)
+                    }
+                    Resource.Loading -> Unit
                 }
             }
-            .launchIn(viewModelScope)
+        }
     }
 }

@@ -42,6 +42,8 @@ class CallViewModel @Inject constructor(
 
     private val endHandled = AtomicBoolean(false)
     private var disconnectTimeoutJob: Job? = null
+    private var localRendererReleased: Boolean = false
+    private var remoteRendererReleased: Boolean = false
 
     private val _uiState = MutableStateFlow(CallUiState())
     val uiState: StateFlow<CallUiState> = _uiState.asStateFlow()
@@ -170,8 +172,33 @@ class CallViewModel @Inject constructor(
     }
 
     fun getEglContext() = webRTCManager.eglContext
-    fun setLocalSink(renderer: SurfaceViewRenderer) { webRTCManager.localVideoSink = renderer }
-    fun setRemoteSink(renderer: SurfaceViewRenderer) { webRTCManager.remoteVideoSink = renderer }
+    fun setLocalSink(renderer: SurfaceViewRenderer) {
+        localRendererReleased = false
+        webRTCManager.localVideoSink = renderer
+    }
+
+    fun setRemoteSink(renderer: SurfaceViewRenderer) {
+        remoteRendererReleased = false
+        webRTCManager.remoteVideoSink = renderer
+    }
+
+    fun clearLocalSink() {
+        webRTCManager.clearLocalVideoSink()
+    }
+
+    fun clearRemoteSink() {
+        webRTCManager.clearRemoteVideoSink()
+    }
+
+    fun onLocalRendererReleased() {
+        localRendererReleased = true
+        webRTCManager.recycleEglBaseIfEligible(localRendererReleased, remoteRendererReleased)
+    }
+
+    fun onRemoteRendererReleased() {
+        remoteRendererReleased = true
+        webRTCManager.recycleEglBaseIfEligible(localRendererReleased, remoteRendererReleased)
+    }
 
     private fun startCallTimer() {
         viewModelScope.launch {
