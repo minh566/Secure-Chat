@@ -90,6 +90,49 @@ class ChatRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun addMembersToRoom(roomId: String, memberIds: List<String>): Resource<Unit> {
+        if (memberIds.isEmpty()) return Resource.Error("Chưa chọn thành viên để thêm")
+
+        return try {
+            val roomRef = firestore.collection("rooms").document(roomId)
+            val roomDoc = roomRef.get().await()
+            val room = roomDoc.toObject(ChatRoom::class.java)?.copy(id = roomDoc.id)
+                ?: return Resource.Error("Không tìm thấy phòng chat")
+
+            val existingMembers = room.members.toSet()
+            val newMemberIds = memberIds.filter { it !in existingMembers }.distinct()
+            if (newMemberIds.isEmpty()) return Resource.Success(Unit)
+
+            val updatedNames = room.memberNames.toMutableMap()
+            val updatedPhotos = room.memberPhotos.toMutableMap()
+            val updatedUnread = room.unreadCount.toMutableMap()
+
+            newMemberIds.forEach { uid ->
+                val userResult = userRepository.getUser(uid)
+                if (userResult is Resource.Success) {
+                    updatedNames[uid] = userResult.data.displayName
+                    updatedPhotos[uid] = userResult.data.photoUrl ?: ""
+                }
+                updatedUnread.putIfAbsent(uid, 0)
+            }
+
+            val mergedMembers = (room.members + newMemberIds).distinct()
+            roomRef.update(
+                mapOf(
+                    "members" to mergedMembers,
+                    "memberNames" to updatedNames,
+                    "memberPhotos" to updatedPhotos,
+                    "unreadCount" to updatedUnread,
+                    "isGroup" to (room.isGroup || mergedMembers.size > 2)
+                )
+            ).await()
+
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "Thêm thành viên thất bại")
+        }
+    }
+
     override fun getMessages(roomId: String): Flow<Resource<List<Message>>> = flow {
         emit(Resource.Loading)
         val cached = messageDao.getMessagesByRoom(roomId).firstOrNull()

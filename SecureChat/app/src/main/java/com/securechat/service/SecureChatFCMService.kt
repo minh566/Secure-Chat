@@ -8,7 +8,9 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.securechat.MainActivity
 import com.securechat.domain.repository.AuthRepository
+import com.securechat.domain.repository.CallRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +21,7 @@ import javax.inject.Inject
 class SecureChatFCMService : FirebaseMessagingService() {
 
     @Inject lateinit var authRepository: AuthRepository
+    @Inject lateinit var callRepository: CallRepository
 
     // Khi Firebase cấp token mới (app cài lần đầu hoặc token hết hạn)
     override fun onNewToken(token: String) {
@@ -35,17 +38,29 @@ class SecureChatFCMService : FirebaseMessagingService() {
 
         val data = message.data
         when (data["type"]) {
-            "INCOMING_CALL" -> handleIncomingCall(data)
+            "INCOMING_CALL" -> handleIncomingCall(message, data)
             "NEW_MESSAGE"   -> handleNewMessage(data)
         }
     }
 
-    private fun handleIncomingCall(data: Map<String, String>) {
+    private fun handleIncomingCall(message: RemoteMessage, data: Map<String, String>) {
         val callerName = data["callerName"] ?: "Người dùng"
         val sessionId  = data["sessionId"] ?: return
+        val peerId     = data["callerId"] ?: return
         val callType   = data["callType"] ?: "VIDEO"
 
-        showCallNotification(callerName, sessionId, callType)
+        val now = System.currentTimeMillis()
+        val sentAt = message.sentTime
+        val timeoutMs = 3000L
+        val isStale = sentAt > 0L && (now - sentAt) > timeoutMs
+        if (isStale) {
+            CoroutineScope(Dispatchers.IO).launch {
+                callRepository.declineCall(sessionId)
+            }
+            return
+        }
+
+        showCallNotification(callerName, sessionId, peerId, callType)
     }
 
     private fun handleNewMessage(data: Map<String, String>) {
@@ -56,16 +71,19 @@ class SecureChatFCMService : FirebaseMessagingService() {
         showMessageNotification(senderName, content, roomId)
     }
 
-    private fun showCallNotification(callerName: String, sessionId: String, callType: String) {
+    private fun showCallNotification(callerName: String, sessionId: String, peerId: String, callType: String) {
         val channelId = "call_channel"
         createNotificationChannel(channelId, "Cuộc gọi đến", NotificationManager.IMPORTANCE_HIGH)
 
         // Intent mở màn hình nhận cuộc gọi
         val acceptIntent = PendingIntent.getActivity(
             this, 0,
-            Intent(this, Class.forName("com.securechat.ui.MainActivity")).apply {
+            Intent(this, MainActivity::class.java).apply {
                 putExtra("action", "ACCEPT_CALL")
                 putExtra("sessionId", sessionId)
+                putExtra("callerName", callerName)
+                putExtra("peerId", peerId)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -76,6 +94,7 @@ class SecureChatFCMService : FirebaseMessagingService() {
             .setSmallIcon(android.R.drawable.ic_menu_call)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setContentIntent(acceptIntent)
             .setFullScreenIntent(acceptIntent, true)  // Hiện full screen khi điện thoại khóa
             .addAction(android.R.drawable.ic_menu_call, "Nhận", acceptIntent)
             .build()

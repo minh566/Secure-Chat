@@ -1,5 +1,6 @@
 package com.securechat
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -16,13 +17,22 @@ import com.securechat.ui.navigation.SecureChatNavGraph
 import com.securechat.ui.theme.SecureChatTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.MutableSharedFlow
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+    private data class IncomingCallNavigation(
+        val sessionId: String,
+        val callerName: String,
+        val peerId: String
+    )
+
     @Inject lateinit var authRepository: AuthRepository
     @Inject lateinit var callRepository: CallRepository
+
+    private val incomingCallEvents = MutableSharedFlow<IncomingCallNavigation>(extraBufferCapacity = 1)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,6 +66,23 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // Điều hướng khi người dùng bấm notification ACCEPT_CALL.
+                    LaunchedEffect(Unit) {
+                        parseIncomingCallIntent(intent)?.let { incomingCallEvents.tryEmit(it) }
+
+                        incomingCallEvents.collectLatest { payload ->
+                            val shouldNavigate = handledIncomingSessionId.value != payload.sessionId
+                            if (!shouldNavigate) return@collectLatest
+
+                            handledIncomingSessionId.value = payload.sessionId
+                            navController.navigate(
+                                Screen.Call.go(payload.sessionId, payload.callerName, false, payload.peerId)
+                            ) {
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+
                     val startDestination = if (authRepository.isLoggedIn())
                         Screen.Home.route
                     else
@@ -69,5 +96,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        parseIncomingCallIntent(intent)?.let { incomingCallEvents.tryEmit(it) }
+    }
+
+    private fun parseIncomingCallIntent(intent: Intent?): IncomingCallNavigation? {
+        if (intent?.getStringExtra("action") != "ACCEPT_CALL") return null
+        val sessionId = intent.getStringExtra("sessionId") ?: return null
+        val callerName = intent.getStringExtra("callerName") ?: "Cuộc gọi đến"
+        val peerId = intent.getStringExtra("peerId") ?: return null
+        return IncomingCallNavigation(sessionId = sessionId, callerName = callerName, peerId = peerId)
     }
 }

@@ -27,7 +27,8 @@ data class HomeUiState(
     val searchQuery: String = "",
     val searchResults: List<User> = emptyList(),
     val selectedUser: User? = null,
-    val deletingRoomId: String? = null
+    val deletingRoomId: String? = null,
+    val roomToDeleteId: String? = null
 )
 
 @OptIn(FlowPreview::class)
@@ -137,11 +138,19 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun showDeleteRoomDialog(roomId: String) {
+        _uiState.update { it.copy(roomToDeleteId = roomId) }
+    }
+
+    fun dismissDeleteRoomDialog() {
+        _uiState.update { it.copy(roomToDeleteId = null) }
+    }
+
     fun deleteRoom(roomId: String) {
         if (_uiState.value.deletingRoomId != null) return
 
         viewModelScope.launch {
-            _uiState.update { it.copy(deletingRoomId = roomId, errorMessage = null) }
+            _uiState.update { it.copy(deletingRoomId = roomId, errorMessage = null, roomToDeleteId = null) }
             when (val result = chatRepository.deleteChatRoom(roomId)) {
                 is Resource.Error -> _uiState.update {
                     it.copy(deletingRoomId = null, errorMessage = result.message)

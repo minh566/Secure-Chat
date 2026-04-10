@@ -7,6 +7,7 @@ interface ChatRepository {
     fun getChatRooms(userId: String): Flow<Resource<List<ChatRoom>>>
     suspend fun createRoom(name: String, memberIds: List<String>, isGroup: Boolean): Resource<ChatRoom>
     suspend fun getChatRoom(roomId: String): Resource<ChatRoom>
+    suspend fun addMembersToRoom(roomId: String, memberIds: List<String>): Resource<Unit>
     suspend fun deleteChatRoom(roomId: String): Resource<Unit> // THÊM DÒNG NÀY
 
     fun getMessages(roomId: String): Flow<Resource<List<Message>>>

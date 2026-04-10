@@ -15,10 +15,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import com.securechat.ui.screens.home.UserAvatar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -114,6 +114,34 @@ fun EditProfileScreen(
 
             uiState.error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserAvatar(url: String?, name: String, size: Dp) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+    ) {
+        if (!url.isNullOrBlank()) {
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = name.trim().take(1).uppercase().ifBlank { "?" },
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             }
         }
     }

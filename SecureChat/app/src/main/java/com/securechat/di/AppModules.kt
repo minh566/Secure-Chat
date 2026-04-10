@@ -7,15 +7,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import com.securechat.data.local.SecureChatDatabase
 import com.securechat.data.local.dao.MessageDao
-import com.securechat.data.repository.AuthRepositoryImpl
-import com.securechat.data.repository.CallRepositoryImpl
-import com.securechat.data.repository.ChatRepositoryImpl
-import com.securechat.data.repository.UserRepositoryImpl
-import com.securechat.domain.repository.AuthRepository
-import com.securechat.domain.repository.CallRepository
-import com.securechat.domain.repository.ChatRepository
-import com.securechat.domain.repository.UserRepository
-import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -28,7 +19,11 @@ import javax.inject.Singleton
 object FirebaseModule {
 
     @Provides @Singleton
-    fun provideFirebaseAuth(): FirebaseAuth = FirebaseAuth.getInstance()
+    fun provideFirebaseAuth(): FirebaseAuth {
+        val auth = FirebaseAuth.getInstance()
+        auth.firebaseAuthSettings.setAppVerificationDisabledForTesting(true)
+        return auth
+    }
 
     @Provides @Singleton
     fun provideFirestore(): FirebaseFirestore = FirebaseFirestore.getInstance()
@@ -53,19 +48,3 @@ object DatabaseModule {
     fun provideMessageDao(db: SecureChatDatabase): MessageDao = db.messageDao()
 }
 
-@Module
-@InstallIn(SingletonComponent::class)
-abstract class RepositoryModule {
-
-    @Binds @Singleton
-    abstract fun bindAuthRepository(impl: AuthRepositoryImpl): AuthRepository
-
-    @Binds @Singleton
-    abstract fun bindChatRepository(impl: ChatRepositoryImpl): ChatRepository
-
-    @Binds @Singleton
-    abstract fun bindCallRepository(impl: CallRepositoryImpl): CallRepository
-
-    @Binds @Singleton
-    abstract fun bindUserRepository(impl: UserRepositoryImpl): UserRepository
-}

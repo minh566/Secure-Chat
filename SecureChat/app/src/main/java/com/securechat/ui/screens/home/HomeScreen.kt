@@ -1,15 +1,21 @@
 package com.securechat.ui.screens.home
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -17,12 +23,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.securechat.domain.model.ChatRoom
 import java.text.SimpleDateFormat
 import java.util.Locale
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onOpenChat: (roomId: String, roomName: String) -> Unit,
-    onSignedOut: () -> Unit,
+    onOpenSettings: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -33,8 +42,8 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("SecureChat") },
                 actions = {
-                    IconButton(onClick = { viewModel.signOut(onSignedOut) }) {
-                        Icon(Icons.Default.Logout, contentDescription = "Đăng xuất")
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Cài đặt")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -115,7 +124,9 @@ fun HomeScreen(
                     ) { room ->
                         RoomItem(
                             room    = room,
-                            onClick = { onOpenChat(room.id, room.name) }
+                            currentUserId = user?.uid ?: "",
+                            onClick = { onOpenChat(room.id, room.name) },
+                            onLongClick = { viewModel.showDeleteRoomDialog(room.id) } // Needs to be added to view model
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
                     }
@@ -160,23 +171,54 @@ fun HomeScreen(
                 }
             )
         }
+
+        if (uiState.roomToDeleteId != null) {
+            AlertDialog(
+                onDismissRequest = viewModel::dismissDeleteRoomDialog,
+                title = { Text("Xóa phòng chat") },
+                text = { Text("Bạn có chắc chắn muốn xóa phòng chat này không? Tất cả tin nhắn sẽ bị xóa vĩnh viễn.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = { viewModel.deleteRoom(uiState.roomToDeleteId!!) }
+                    ) {
+                        Text("Xóa", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = viewModel::dismissDeleteRoomDialog) {
+                        Text("Hủy")
+                    }
+                }
+            )
+        }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RoomItem(room: ChatRoom, onClick: () -> Unit) {
+private fun RoomItem(room: ChatRoom, currentUserId: String, onClick: () -> Unit, onLongClick: () -> Unit) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val unread = room.unreadCount[currentUserId] ?: 0
+    val isUnread = unread > 0
+    val isMine = room.lastMessage?.senderId == currentUserId
 
     ListItem(
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier.pointerInput(Unit) {
+            detectTapGestures(
+                onTap = { onClick() },
+                onLongPress = { onLongClick() }
+            )
+        },
         headlineContent = {
-            Text(room.name, style = MaterialTheme.typography.titleMedium)
+            Text(room.name, style = MaterialTheme.typography.titleMedium, fontWeight = if (isUnread) androidx.compose.ui.text.font.FontWeight.Bold else null)
         },
         supportingContent = {
+            val prefix = if (isMine) "Bạn: " else ""
             Text(
-                text = room.lastMessage?.content ?: "Chưa có tin nhắn",
+                text = prefix + (room.lastMessage?.content ?: "Chưa có tin nhắn"),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (isMine) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = if (isUnread && !isMine) androidx.compose.ui.text.font.FontWeight.Bold else null,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -205,11 +247,52 @@ private fun RoomItem(room: ChatRoom, onClick: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (room.unreadCount > 0) {
+                if (unread > 0) {
                     Spacer(Modifier.height(4.dp))
-                    Badge { Text(room.unreadCount.toString()) }
+                    Badge { Text(unread.toString()) }
                 }
             }
         }
     )
+}
+
+val PrimaryGreen = Color(0xFF4CAF50)
+
+@Composable
+fun AvatarWithStatus(imageUrl: String?, name: String, isOnline: Boolean) {
+    Box {
+        Surface(
+            shape = androidx.compose.foundation.shape.CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(40.dp)
+        ) {
+            if (!imageUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(androidx.compose.foundation.shape.CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = name.take(1).uppercase(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+        }
+        if (isOnline) {
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .align(Alignment.BottomEnd)
+                    .background(PrimaryGreen, androidx.compose.foundation.shape.CircleShape)
+                    .border(2.dp, MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.CircleShape)
+            )
+        }
+    }
 }

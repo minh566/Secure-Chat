@@ -1,6 +1,7 @@
 package com.securechat.ui.screens.contact
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,10 +18,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.securechat.ui.screens.home.AvatarWithStatus
-import com.securechat.ui.screens.home.PrimaryGreen
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+
+val PrimaryGreen = Color(0xFF2E7D32)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,7 +56,6 @@ fun ContactListScreen(
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                     )
                     
-                    // Search Bar inside Header
                     TextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
@@ -85,7 +88,6 @@ fun ContactListScreen(
                 .padding(padding),
             contentPadding = PaddingValues(vertical = 8.dp)
         ) {
-            // Mock Data
             val contacts = listOf(
                 Contact("Alex Johnson", "Available", true),
                 Contact("Maria Garcia", "Busy", true),
@@ -117,4 +119,50 @@ fun ContactItem(contact: Contact, onClick: () -> Unit) {
             AvatarWithStatus(imageUrl = "", name = contact.name, isOnline = contact.isOnline)
         }
     )
+}
+
+@Composable
+fun AvatarWithStatus(
+    imageUrl: String?,
+    name: String,
+    isOnline: Boolean,
+    size: Int = 48
+) {
+    Box(contentAlignment = Alignment.BottomEnd) {
+        if (!imageUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(size.dp)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(size.dp)
+                    .clip(CircleShape)
+                    .background(Color.LightGray),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = name.take(1).uppercase(),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = (size / 3).sp,
+                    color = Color.White
+                )
+            }
+        }
+        
+        if (isOnline) {
+            Box(
+                modifier = Modifier
+                    .size((size / 4).dp)
+                    .clip(CircleShape)
+                    .background(Color.Green)
+                    .border(2.dp, Color.White, CircleShape)
+            )
+        }
+    }
 }

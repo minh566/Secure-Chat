@@ -13,7 +13,9 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.webrtc.SurfaceViewRenderer
+import java.util.Date
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
@@ -36,7 +38,7 @@ class CallViewModel @Inject constructor(
 
     private val sessionId: String = checkNotNull(savedStateHandle["sessionId"])
     private val isCaller: Boolean = savedStateHandle["isCaller"] ?: false
-    private val calleeId: String = savedStateHandle["calleeId"] ?: ""
+    private val peerId: String = savedStateHandle["peerId"] ?: ""
 
     private val endHandled = AtomicBoolean(false)
     private var disconnectTimeoutJob: Job? = null
@@ -116,30 +118,54 @@ class CallViewModel @Inject constructor(
         if (!endHandled.compareAndSet(false, true)) return
         webRTCManager.endCall()
         _uiState.update { it.copy(status = status) }
+        viewModelScope.launch {
+            try { callRepository.endCall(sessionId) } catch (e: Exception) {}
+        }
     }
 
     private fun setupCall() {
         viewModelScope.launch {
             if (isCaller) {
                 val currentUser = authRepository.currentUser ?: return@launch
+                if (peerId.isBlank()) {
+                    _uiState.update { it.copy(errorMessage = "Thiếu thông tin người nhận cuộc gọi", status = CallStatus.ENDED) }
+                    return@launch
+                }
+
                 val session = CallSession(
                     id = sessionId,
                     callerId = currentUser.uid,
-                    calleeId = calleeId,
+                    calleeId = peerId,
+                    startedAt = Date(),
                     status = CallStatus.RINGING
                 )
                 callRepository.initiateCall(session)
                 
                 webRTCManager.startLocalStream()
                 webRTCManager.call(sessionId)
+
+                // Auto-timeout sau 3 giây nếu chưa có ACCEPTED.
+                delay(3000)
+                if (_uiState.value.status == CallStatus.RINGING) {
+                    handleRemoteEnded(CallStatus.MISSED)
+                }
             } else {
-                callRepository.acceptCall(sessionId)
                 webRTCManager.startLocalStream()
-                callRepository.observeOffer(sessionId).filterNotNull().first().let { offerSdp ->
+                val offerSdp = withTimeoutOrNull(3000) {
+                    callRepository.observeOffer(sessionId).filterNotNull().first()
+                }
+
+                if (offerSdp == null) {
+                    handleRemoteEnded(CallStatus.MISSED)
+                    return@launch
+                }
+
+                offerSdp.let {
                     webRTCManager.answer(sessionId, offerSdp)
                 }
+                callRepository.acceptCall(sessionId)
+                _uiState.update { it.copy(status = CallStatus.ACCEPTED) }
             }
-            _uiState.update { it.copy(status = CallStatus.ACCEPTED) }
         }
     }
 

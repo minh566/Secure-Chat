@@ -24,3 +24,5 @@ dependencyResolutionManagement {
 rootProject.name = "SecureChat"
 include(":app")
 project(":app").projectDir = file("SecureChat/app")
+include(":signaling-server")
+project(":signaling-server").projectDir = file("signaling-server")

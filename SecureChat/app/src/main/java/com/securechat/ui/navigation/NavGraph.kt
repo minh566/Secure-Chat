@@ -9,20 +9,24 @@ import com.securechat.ui.screens.auth.RegisterScreen
 import com.securechat.ui.screens.call.VideoCallScreen
 import com.securechat.ui.screens.chat.ChatScreen
 import com.securechat.ui.screens.home.HomeScreen
+import com.securechat.ui.screens.profile.EditProfileScreen
+import com.securechat.ui.screens.settings.SettingsScreen
 
 sealed class Screen(val route: String) {
     data object Login    : Screen("login")
     data object Register : Screen("register")
     data object Home     : Screen("home")
+    data object Settings : Screen("settings")
+    data object EditProfile : Screen("edit_profile")
 
     data object Chat : Screen("chat/{roomId}/{roomName}") {
         fun go(roomId: String, roomName: String) =
             "chat/$roomId/${java.net.URLEncoder.encode(roomName, "UTF-8")}"
     }
 
-    data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}") {
-        fun go(sessionId: String, calleeName: String, isCaller: Boolean) =
-            "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller"
+    data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}/{peerId}") {
+        fun go(sessionId: String, calleeName: String, isCaller: Boolean, peerId: String) =
+            "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller/${java.net.URLEncoder.encode(peerId, "UTF-8")}"
     }
 }
 
@@ -63,13 +67,26 @@ fun SecureChatNavGraph(
                 onOpenChat = { roomId, roomName ->
                     navController.navigate(Screen.Chat.go(roomId, roomName))
                 },
-                onSignedOut = {
-                    // SỬA ĐỔI: Xóa toàn bộ stack để không quay lại được Home sau logout
+                onOpenSettings = {
+                    navController.navigate(Screen.Settings.route)
+                }
+            )
+        }
+
+        composable(Screen.Settings.route) {
+            SettingsScreen(
+                { navController.popBackStack() },
+                { navController.navigate(Screen.EditProfile.route) },
+                {
                     navController.navigate(Screen.Login.route) {
                         popUpTo(0) { inclusive = true }
                     }
                 }
             )
+        }
+
+        composable(Screen.EditProfile.route) {
+            EditProfileScreen(onBack = { navController.popBackStack() })
         }
 
         composable(
@@ -79,16 +96,15 @@ fun SecureChatNavGraph(
                 navArgument("roomName") { type = NavType.StringType }
             )
         ) { backStackEntry ->
-            val roomId   = backStackEntry.arguments?.getString("roomId") ?: ""
             val roomNameRaw = backStackEntry.arguments?.getString("roomName") ?: ""
             val roomName = java.net.URLDecoder.decode(roomNameRaw, "UTF-8")
 
             ChatScreen(
                 roomName = roomName,
                 onBack   = { navController.popBackStack() },
-                onStartVideoCall = {
+                onStartVideoCall = { calleeId ->
                     val sessionId = java.util.UUID.randomUUID().toString()
-                    navController.navigate(Screen.Call.go(sessionId, roomName, true))
+                    navController.navigate(Screen.Call.go(sessionId, roomName, true, calleeId))
                 },
                 authRepository = authRepository
             )
@@ -99,7 +115,8 @@ fun SecureChatNavGraph(
             arguments = listOf(
                 navArgument("sessionId")  { type = NavType.StringType },
                 navArgument("calleeName") { type = NavType.StringType },
-                navArgument("isCaller")   { type = NavType.BoolType }
+                navArgument("isCaller")   { type = NavType.BoolType },
+                navArgument("peerId")     { type = NavType.StringType }
             )
         ) { backStackEntry ->
             val calleeNameRaw = backStackEntry.arguments?.getString("calleeName") ?: ""
