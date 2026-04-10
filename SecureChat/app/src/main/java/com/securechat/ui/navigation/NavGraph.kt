@@ -20,9 +20,9 @@ sealed class Screen(val route: String) {
             "chat/$roomId/${java.net.URLEncoder.encode(roomName, "UTF-8")}"
     }
 
-    data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}") {
-        fun go(sessionId: String, calleeName: String, isCaller: Boolean) =
-            "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller"
+    data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}/{calleeId}") {
+        fun go(sessionId: String, calleeName: String, isCaller: Boolean, calleeId: String) =
+            "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller/${java.net.URLEncoder.encode(calleeId, "UTF-8")}"
     }
 }
 
@@ -86,9 +86,9 @@ fun SecureChatNavGraph(
             ChatScreen(
                 roomName = roomName,
                 onBack   = { navController.popBackStack() },
-                onStartVideoCall = {
+                onStartVideoCall = { calleeId ->
                     val sessionId = java.util.UUID.randomUUID().toString()
-                    navController.navigate(Screen.Call.go(sessionId, roomName, true))
+                    navController.navigate(Screen.Call.go(sessionId, roomName, true, calleeId))
                 },
                 authRepository = authRepository
             )
@@ -99,7 +99,8 @@ fun SecureChatNavGraph(
             arguments = listOf(
                 navArgument("sessionId")  { type = NavType.StringType },
                 navArgument("calleeName") { type = NavType.StringType },
-                navArgument("isCaller")   { type = NavType.BoolType }
+                navArgument("isCaller")   { type = NavType.BoolType },
+                navArgument("calleeId")   { type = NavType.StringType }
             )
         ) { backStackEntry ->
             val calleeNameRaw = backStackEntry.arguments?.getString("calleeName") ?: ""

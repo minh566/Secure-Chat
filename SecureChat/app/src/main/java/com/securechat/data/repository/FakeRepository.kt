@@ -33,7 +33,7 @@ class FakeRepository @Inject constructor() {
                     createdAt = Date(),
                     senderId = user.uid
                 ),
-                unreadCount = (0..3).random()
+                unreadCount = mapOf("me" to (0..3).random())
             )
         }
     )
@@ -86,7 +86,7 @@ class FakeRepository @Inject constructor() {
         // Update room's last message
         _rooms.update { rooms ->
             rooms.map { room ->
-                if (room.id == roomId) room.copy(lastMessage = newMessage, unreadCount = 0)
+                if (room.id == roomId) room.copy(lastMessage = newMessage, unreadCount = mapOf("me" to 0))
                 else room
             }
         }

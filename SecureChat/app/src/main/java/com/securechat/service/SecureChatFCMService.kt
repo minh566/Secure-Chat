@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.securechat.MainActivity
 import com.securechat.domain.repository.AuthRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -63,7 +64,7 @@ class SecureChatFCMService : FirebaseMessagingService() {
         // Intent mở màn hình nhận cuộc gọi
         val acceptIntent = PendingIntent.getActivity(
             this, 0,
-            Intent(this, Class.forName("com.securechat.ui.MainActivity")).apply {
+            Intent(this, MainActivity::class.java).apply {
                 putExtra("action", "ACCEPT_CALL")
                 putExtra("sessionId", sessionId)
             },

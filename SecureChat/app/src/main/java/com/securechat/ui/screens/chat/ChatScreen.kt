@@ -27,7 +27,7 @@ import java.util.Locale
 fun ChatScreen(
     roomName: String,
     onBack: () -> Unit,
-    onStartVideoCall: () -> Unit,
+    onStartVideoCall: (String) -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
     authRepository: AuthRepository
 ) {
@@ -51,7 +51,11 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onStartVideoCall) {
+                    IconButton(
+                        onClick = {
+                            viewModel.getCalleeId()?.let(onStartVideoCall)
+                        }
+                    ) {
                         Icon(Icons.Default.VideoCall, contentDescription = "Gọi video")
                     }
                 }

@@ -115,6 +115,7 @@ fun HomeScreen(
                     ) { room ->
                         RoomItem(
                             room    = room,
+                            currentUserId = user?.uid.orEmpty(),
                             onClick = { onOpenChat(room.id, room.name) }
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
@@ -164,8 +165,9 @@ fun HomeScreen(
 }
 
 @Composable
-private fun RoomItem(room: ChatRoom, onClick: () -> Unit) {
+private fun RoomItem(room: ChatRoom, currentUserId: String, onClick: () -> Unit) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val unreadCount = room.unreadCount[currentUserId] ?: 0
 
     ListItem(
         modifier = Modifier.clickable(onClick = onClick),
@@ -205,9 +207,9 @@ private fun RoomItem(room: ChatRoom, onClick: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (room.unreadCount > 0) {
+                if (unreadCount > 0) {
                     Spacer(Modifier.height(4.dp))
-                    Badge { Text(room.unreadCount.toString()) }
+                    Badge { Text(unreadCount.toString()) }
                 }
             }
         }
