@@ -7,8 +7,11 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+<<<<<<< Updated upstream
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageException
+=======
+>>>>>>> Stashed changes
 import com.securechat.data.local.dao.MessageDao
 import com.securechat.data.mapper.toMessage
 import com.securechat.data.mapper.toMessageEntity
@@ -28,7 +31,6 @@ class ChatRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val firebaseAuth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
-    private val storage: FirebaseStorage,
     private val messageDao: MessageDao,
     private val userRepository: UserRepository
 ) : ChatRepository {
@@ -48,7 +50,7 @@ class ChatRepositoryImpl @Inject constructor(
                     }.getOrNull()
                 } ?: emptyList()
                 
-                val sortedRooms = rooms.sortedByDescending { it.lastMessage?.createdAt }
+                val sortedRooms = rooms.sortedByDescending { it.lastMessage?.createdAt ?: java.util.Date(0) }
                 trySend(Resource.Success(sortedRooms))
             }
         awaitClose { listener.remove() }

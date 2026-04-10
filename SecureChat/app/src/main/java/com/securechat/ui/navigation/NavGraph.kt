@@ -10,23 +10,36 @@ import com.securechat.ui.screens.call.VideoCallScreen
 import com.securechat.ui.screens.chat.ChatScreen
 import com.securechat.ui.screens.home.HomeScreen
 import com.securechat.ui.screens.profile.EditProfileScreen
+<<<<<<< Updated upstream
 import com.securechat.ui.screens.settings.SettingsScreen
+=======
+>>>>>>> Stashed changes
 
 sealed class Screen(val route: String) {
     data object Login    : Screen("login")
     data object Register : Screen("register")
     data object Home     : Screen("home")
+<<<<<<< Updated upstream
     data object Settings : Screen("settings")
     data object EditProfile : Screen("edit_profile")
+=======
+    data object Profile  : Screen("profile")
+>>>>>>> Stashed changes
 
     data object Chat : Screen("chat/{roomId}/{roomName}") {
         fun go(roomId: String, roomName: String) =
             "chat/$roomId/${java.net.URLEncoder.encode(roomName, "UTF-8")}"
     }
 
+<<<<<<< Updated upstream
     data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}/{peerId}") {
         fun go(sessionId: String, calleeName: String, isCaller: Boolean, peerId: String) =
             "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller/${java.net.URLEncoder.encode(peerId, "UTF-8")}"
+=======
+    data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}/{callerId}") {
+        fun go(sessionId: String, calleeName: String, isCaller: Boolean, callerId: String) =
+            "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller/$callerId"
+>>>>>>> Stashed changes
     }
 }
 
@@ -85,8 +98,15 @@ fun SecureChatNavGraph(
             )
         }
 
+<<<<<<< Updated upstream
         composable(Screen.EditProfile.route) {
             EditProfileScreen(onBack = { navController.popBackStack() })
+=======
+        composable(Screen.Profile.route) {
+            EditProfileScreen(
+                onBack = { navController.popBackStack() }
+            )
+>>>>>>> Stashed changes
         }
 
         composable(
@@ -104,7 +124,12 @@ fun SecureChatNavGraph(
                 onBack   = { navController.popBackStack() },
                 onStartVideoCall = { calleeId ->
                     val sessionId = java.util.UUID.randomUUID().toString()
+<<<<<<< Updated upstream
                     navController.navigate(Screen.Call.go(sessionId, roomName, true, calleeId))
+=======
+                    val callerId = authRepository.currentUser?.uid ?: ""
+                    navController.navigate(Screen.Call.go(sessionId, roomName, true, callerId))
+>>>>>>> Stashed changes
                 },
                 authRepository = authRepository
             )
@@ -116,14 +141,24 @@ fun SecureChatNavGraph(
                 navArgument("sessionId")  { type = NavType.StringType },
                 navArgument("calleeName") { type = NavType.StringType },
                 navArgument("isCaller")   { type = NavType.BoolType },
+<<<<<<< Updated upstream
                 navArgument("peerId")     { type = NavType.StringType }
+=======
+                navArgument("callerId")   { type = NavType.StringType }
+>>>>>>> Stashed changes
             )
         ) { backStackEntry ->
+            val sessionId = backStackEntry.arguments?.getString("sessionId") ?: ""
             val calleeNameRaw = backStackEntry.arguments?.getString("calleeName") ?: ""
             val calleeName = java.net.URLDecoder.decode(calleeNameRaw, "UTF-8")
+            val isCaller = backStackEntry.arguments?.getBoolean("isCaller") ?: false
+            val callerId = backStackEntry.arguments?.getString("callerId") ?: ""
 
             VideoCallScreen(
-                calleeName  = calleeName,
+                sessionId = sessionId,
+                calleeName = calleeName,
+                isCaller = isCaller,
+                callerId = callerId,
                 onCallEnded = { navController.popBackStack() }
             )
         }

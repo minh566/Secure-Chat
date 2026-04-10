@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -41,7 +42,7 @@ fun HomeScreen(
                 title = { Text("SecureChat") },
                 actions = {
                     IconButton(onClick = { viewModel.signOut(onSignedOut) }) {
-                        Icon(Icons.Default.Logout, contentDescription = "Đăng xuất")
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Đăng xuất")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -124,11 +125,17 @@ fun HomeScreen(
                         val displayRoomName = room.displayNameFor(user?.uid.orEmpty())
                         
                         RoomItem(
+<<<<<<< Updated upstream
                             room = room,
                             roomDisplayName = displayRoomName,
                             unreadForMe = room.unreadCount[myUid] ?: 0,
                             onClick = { onOpenChat(room.id, displayRoomName) },
                             onLongClick = { viewModel.showDeleteRoomDialog(room.id) }
+=======
+                            room    = room,
+                            currentUserId = user?.uid ?: "",
+                            onClick = { onOpenChat(room.id, room.name) }
+>>>>>>> Stashed changes
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
                     }
@@ -215,6 +222,7 @@ fun HomeScreen(
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
+<<<<<<< Updated upstream
 private fun RoomItem(
     room: ChatRoom,
     roomDisplayName: String,
@@ -222,6 +230,9 @@ private fun RoomItem(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
+=======
+private fun RoomItem(room: ChatRoom, currentUserId: String, onClick: () -> Unit) {
+>>>>>>> Stashed changes
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
     ListItem(
@@ -269,9 +280,16 @@ private fun RoomItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+<<<<<<< Updated upstream
                 if (unreadForMe > 0) {
                     Spacer(Modifier.height(4.dp))
                     Badge { Text(unreadForMe.toString()) }
+=======
+                val unreadCount = room.unreadCount[currentUserId] ?: 0
+                if (unreadCount > 0) {
+                    Spacer(Modifier.height(4.dp))
+                    Badge { Text(unreadCount.toString()) }
+>>>>>>> Stashed changes
                 }
             }
         }

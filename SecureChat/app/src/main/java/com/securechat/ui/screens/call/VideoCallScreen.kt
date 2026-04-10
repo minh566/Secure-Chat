@@ -21,7 +21,10 @@ import org.webrtc.SurfaceViewRenderer
 
 @Composable
 fun VideoCallScreen(
+    sessionId: String,
     calleeName: String,
+    isCaller: Boolean,
+    callerId: String,
     onCallEnded: () -> Unit,
     viewModel: CallViewModel = hiltViewModel()
 ) {

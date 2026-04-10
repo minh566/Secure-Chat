@@ -31,7 +31,8 @@ class FakeRepository @Inject constructor() {
                     id = UUID.randomUUID().toString(),
                     content = "Hey there! How is it going?",
                     createdAt = Date(),
-                    senderId = user.uid
+                    senderId = user.uid,
+                    senderName = user.displayName
                 ),
                 unreadCount = mapOf("me" to (0..3).random())
             )
@@ -40,11 +41,15 @@ class FakeRepository @Inject constructor() {
 
     private val _messages = MutableStateFlow<Map<String, List<Message>>>(
         _rooms.value.associate { room ->
+            val user = _users.find { it.uid == room.members.find { it != "me" } } ?: _users.first()
             room.id to List(15) { i ->
+                val senderId = if (i % 2 == 0) "me" else room.members.find { it != "me" } ?: ""
+                val senderName = if (senderId == "me") "Demo User" else user.displayName
                 Message(
                     id = UUID.randomUUID().toString(),
                     roomId = room.id,
-                    senderId = if (i % 2 == 0) "me" else room.members.find { it != "me" } ?: "",
+                    senderId = senderId,
+                    senderName = senderName,
                     content = "Message $i in ${room.name}",
                     createdAt = Date(System.currentTimeMillis() - (15 - i) * 60000)
                 )
@@ -86,7 +91,11 @@ class FakeRepository @Inject constructor() {
         // Update room's last message
         _rooms.update { rooms ->
             rooms.map { room ->
+<<<<<<< Updated upstream
                 if (room.id == roomId) room.copy(lastMessage = newMessage, unreadCount = emptyMap())
+=======
+                if (room.id == roomId) room.copy(lastMessage = newMessage, unreadCount = mapOf("me" to 0))
+>>>>>>> Stashed changes
                 else room
             }
         }

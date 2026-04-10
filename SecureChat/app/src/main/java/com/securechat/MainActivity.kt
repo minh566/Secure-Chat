@@ -9,7 +9,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.navigation.NavType
+import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.securechat.domain.repository.AuthRepository
 import com.securechat.domain.repository.CallRepository
 import com.securechat.ui.navigation.Screen
@@ -56,9 +59,7 @@ class MainActivity : ComponentActivity() {
                                     if (!shouldNavigate) return@collectLatest
 
                                     handledIncomingSessionId.value = it.id
-                                    navController.navigate(
-                                        Screen.Call.go(it.id, "Cuộc gọi đến", false, it.callerId)
-                                    ) {
+                                    navController.navigate(Screen.Call.go(it.id, "Cuộc gọi đến", false, it.callerId)) {
                                         launchSingleTop = true
                                     }
                                 }
