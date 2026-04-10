@@ -4,3 +4,4 @@
 /build/
 /SecureChat/app/build/
 /SecureChat/app/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/
+/signaling-server/build/
