@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 
 package com.securechat.ui.screens.home
 
@@ -625,10 +625,15 @@ fun HomeScreen(
                         val displayRoomName = room.displayNameFor(user?.uid.orEmpty())
                         RoomItem(
                             room    = room,
+
+                            currentUserId = user?.uid.orEmpty(),
+                            onClick = { onOpenChat(room.id, room.name) }
+
                             roomDisplayName = displayRoomName,
                             currentUserId = user?.uid ?: "",
                             onClick = { onOpenChat(room.id, displayRoomName) },
                             onLongClick = { viewModel.showDeleteRoomDialog(room.id) }
+
                         )
                         HorizontalDivider(color = Color(0xFFF0F2F6))
                     }
@@ -726,6 +731,11 @@ fun HomeScreen(
 }
 
 @Composable
+
+private fun RoomItem(room: ChatRoom, currentUserId: String, onClick: () -> Unit) {
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val unreadCount = room.unreadCount[currentUserId] ?: 0
+
 @OptIn(ExperimentalFoundationApi::class)
 private fun RoomItem(
     room: ChatRoom,
@@ -738,6 +748,7 @@ private fun RoomItem(
     val unread = room.unreadCount[currentUserId] ?: 0
     val isUnread = unread > 0
     val isMine = room.lastMessage?.senderId == currentUserId
+
 
     Row(
         modifier = Modifier
@@ -786,6 +797,11 @@ private fun RoomItem(
                         fontWeight = FontWeight.SemiBold
                     )
                 }
+
+                if (unreadCount > 0) {
+                    Spacer(Modifier.height(4.dp))
+                    Badge { Text(unreadCount.toString()) }
+
                 if (unread > 0) {
                     Spacer(Modifier.height(8.dp))
                     Surface(
@@ -878,6 +894,7 @@ fun AvatarWithStatus(imageUrl: String?, name: String, isOnline: Boolean, size: D
                         style = MaterialTheme.typography.titleMedium,
                         color = Color(0xFF3A82F7)
                     )
+
                 }
             }
         }
@@ -913,4 +930,4 @@ private fun isRecent(date: Date?): Boolean {
     return System.currentTimeMillis() - date.time < 45 * 60 * 1000
 }
 
->>>>>>> 22c3a84 (feat: redesign core screens and wire settings with biometric app lock)
+

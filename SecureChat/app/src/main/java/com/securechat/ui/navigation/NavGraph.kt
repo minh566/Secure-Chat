@@ -1,5 +1,4 @@
-<<<<<<< HEAD
-=======
+
 package com.securechat.ui.navigation
 
 import androidx.compose.runtime.Composable
@@ -32,9 +31,14 @@ sealed class Screen(val route: String) {
             "chat/$roomId/${java.net.URLEncoder.encode(roomName, "UTF-8")}"
     }
 
+    data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}/{calleeId}") {
+        fun go(sessionId: String, calleeName: String, isCaller: Boolean, calleeId: String) =
+            "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller/${java.net.URLEncoder.encode(calleeId, "UTF-8")}"
+
     data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}/{peerId}") {
         fun go(sessionId: String, calleeName: String, isCaller: Boolean, peerId: String) =
             "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller/${java.net.URLEncoder.encode(peerId, "UTF-8")}"
+
     }
 }
 
@@ -139,6 +143,9 @@ fun SecureChatNavGraph(
                 navArgument("sessionId")  { type = NavType.StringType },
                 navArgument("calleeName") { type = NavType.StringType },
                 navArgument("isCaller")   { type = NavType.BoolType },
+
+                navArgument("calleeId")   { type = NavType.StringType }
+
                 navArgument("peerId")     { type = NavType.StringType }
             )
         ) { backStackEntry ->
@@ -152,4 +159,4 @@ fun SecureChatNavGraph(
         }
     }
 }
->>>>>>> 22c3a84 (feat: redesign core screens and wire settings with biometric app lock)
+

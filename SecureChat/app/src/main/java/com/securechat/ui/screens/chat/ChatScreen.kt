@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 
 package com.securechat.ui.screens.chat
 
@@ -431,6 +431,9 @@ import java.util.Locale
 fun ChatScreen(
     roomName: String,
     onBack: () -> Unit,
+
+    onStartVideoCall: (String) -> Unit,
+
     onStartVideoCall: (calleeId: String) -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
     authRepository: AuthRepository
@@ -450,7 +453,22 @@ fun ChatScreen(
     Scaffold(
         containerColor = Color(0xFFF1F2F7),
         topBar = {
-            Surface(color = Color.White) {
+
+            TopAppBar(
+                title = { Text(roomName) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            viewModel.getCalleeId()?.let(onStartVideoCall)
+                        }
+                    ) {
+                        Icon(Icons.Default.VideoCall, contentDescription = "Gọi video")
+         Surface(color = Color.White) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -525,6 +543,7 @@ fun ChatScreen(
                                 tint = Color(0xFF0F80F8)
                             )
                         }
+
                     }
                     HorizontalDivider(color = Color(0xFFE9ECF3))
                 }
@@ -846,4 +865,4 @@ fun MessageBubble(message: Message, isMine: Boolean, currentUserId: String) {
         }
     }
 }
->>>>>>> 22c3a84 (feat: redesign core screens and wire settings with biometric app lock)
+
