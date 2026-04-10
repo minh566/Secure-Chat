@@ -1,8 +1,11 @@
 package com.securechat.data.remote.webrtc
 
 import android.content.Context
+import android.os.Build
 import android.media.AudioManager
 import android.util.Log
+import com.securechat.data.remote.signaling.SignalingApiClient
+import com.securechat.data.remote.signaling.TurnCredentials
 import com.securechat.domain.repository.CallRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
@@ -19,7 +22,8 @@ import javax.inject.Singleton
 @Singleton
 class WebRTCManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val callRepository: CallRepository
+    private val callRepository: CallRepository,
+    private val signalingApiClient: SignalingApiClient
 ) {
     private companion object {
         const val TAG = "WebRTCManager"
@@ -43,7 +47,9 @@ class WebRTCManager @Inject constructor(
     private val _peerConnectionState = MutableStateFlow<PeerConnection.PeerConnectionState?>(null)
     val peerConnectionState: StateFlow<PeerConnection.PeerConnectionState?> = _peerConnectionState.asStateFlow()
 
-    val eglContext: EglBase.Context = EglBase.create().eglBaseContext
+    private var eglBase: EglBase = EglBase.create()
+    val eglContext: EglBase.Context
+        get() = eglBase.eglBaseContext
 
     var localVideoSink: VideoSink? = null
         set(value) {
@@ -59,6 +65,22 @@ class WebRTCManager @Inject constructor(
         }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    fun clearLocalVideoSink() {
+        localVideoSink = null
+    }
+
+    fun clearRemoteVideoSink() {
+        remoteVideoSink = null
+    }
+
+    fun recycleEglBaseIfEligible(localReleased: Boolean, remoteReleased: Boolean) {
+        if (!RendererReleasePolicy.shouldReleaseEgl(localReleased, remoteReleased)) return
+        runCatching {
+            eglBase.release()
+            eglBase = EglBase.create()
+        }
+    }
 
     fun initialize() {
         if (peerConnectionFactory != null) return
@@ -83,8 +105,36 @@ class WebRTCManager @Inject constructor(
             
         // Thiết lập chế độ Audio cho Android
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        configureInCallAudio(audioManager)
+    }
+
+    private fun configureInCallAudio(audioManager: AudioManager) {
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        audioManager.isSpeakerphoneOn = true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val speaker = audioManager.availableCommunicationDevices.firstOrNull {
+                it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+            }
+            if (speaker != null) {
+                audioManager.setCommunicationDevice(speaker)
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            run {
+                audioManager.isSpeakerphoneOn = true
+            }
+        }
+    }
+
+    private fun resetAudioRouting(audioManager: AudioManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager.clearCommunicationDevice()
+        } else {
+            @Suppress("DEPRECATION")
+            run {
+                audioManager.isSpeakerphoneOn = false
+            }
+        }
+        audioManager.mode = AudioManager.MODE_NORMAL
     }
 
     fun startLocalStream(): VideoTrack {
@@ -148,12 +198,15 @@ class WebRTCManager @Inject constructor(
     fun setAudioEnabled(enabled: Boolean) { localAudioTrack?.setEnabled(enabled) }
     fun setVideoEnabled(enabled: Boolean) { localVideoTrack?.setEnabled(enabled) }
 
-    private fun createPeerConnection(sessionId: String): PeerConnection {
-        val iceServers = listOf(
-            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("stun:stun2.l.google.com:19302").createIceServer()
-        )
+    private suspend fun createPeerConnection(sessionId: String): PeerConnection {
+        val turnCredentials = runCatching { signalingApiClient.fetchTurnCredentials() }
+            .onFailure { Log.w(TAG, "Failed to fetch TURN credentials, using STUN-only", it) }
+            .getOrNull()
+        if (turnCredentials == null) {
+            Log.w(TAG, "TURN credentials unavailable, continuing with STUN-only ICE servers")
+        }
+
+        val iceServers = buildIceServers(turnCredentials)
         val config = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
         }
@@ -208,6 +261,16 @@ class WebRTCManager @Inject constructor(
             Log.i(TAG, "addTransceiver[audio] SEND_RECV")
         }
         return pc
+    }
+
+    private fun buildIceServers(turnCredentials: TurnCredentials?): List<PeerConnection.IceServer> {
+        val specs = TurnIceServerPolicy.resolve(turnCredentials)
+        return specs.map { spec ->
+            val builder = PeerConnection.IceServer.builder(spec.url)
+            if (!spec.username.isNullOrBlank()) builder.setUsername(spec.username)
+            if (!spec.credential.isNullOrBlank()) builder.setPassword(spec.credential)
+            builder.createIceServer()
+        }
     }
 
     fun call(sessionId: String) {
@@ -448,11 +511,52 @@ class WebRTCManager @Inject constructor(
             _iceConnectionState.value = null
             _peerConnectionState.value = null
             scope.coroutineContext.cancelChildren()
+            runCatching {
+                eglBase.release()
+                eglBase = EglBase.create()
+            }
             
             // Trả lại âm thanh bình thường
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            audioManager.mode = AudioManager.MODE_NORMAL
+            resetAudioRouting(audioManager)
         } catch (e: Exception) {}
+    }
+}
+
+internal data class IceServerSpec(
+    val url: String,
+    val username: String? = null,
+    val credential: String? = null
+)
+
+internal object TurnIceServerPolicy {
+    private val defaultStunSpecs = listOf(
+        IceServerSpec("stun:stun.l.google.com:19302"),
+        IceServerSpec("stun:stun1.l.google.com:19302"),
+        IceServerSpec("stun:stun2.l.google.com:19302")
+    )
+
+    fun resolve(turnCredentials: TurnCredentials?): List<IceServerSpec> {
+        if (turnCredentials == null) return defaultStunSpecs
+
+        val turnSpecs = turnCredentials.urls
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .map {
+                IceServerSpec(
+                    url = it,
+                    username = turnCredentials.username,
+                    credential = turnCredentials.credential
+                )
+            }
+
+        return if (turnSpecs.isEmpty()) defaultStunSpecs else defaultStunSpecs + turnSpecs
+    }
+}
+
+internal object RendererReleasePolicy {
+    fun shouldReleaseEgl(localReleased: Boolean, remoteReleased: Boolean): Boolean {
+        return localReleased && remoteReleased
     }
 }
 

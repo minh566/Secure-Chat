@@ -1,6 +1,9 @@
 package com.securechat.ui.screens.home
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,10 +13,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.securechat.domain.model.ChatRoom
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -114,10 +121,14 @@ fun HomeScreen(
                         key   = { it.id }
                     ) { room ->
                         val myUid = user?.uid ?: "me"
+                        val displayRoomName = room.displayNameFor(user?.uid.orEmpty())
+                        
                         RoomItem(
-                            room    = room,
+                            room = room,
+                            roomDisplayName = displayRoomName,
                             unreadForMe = room.unreadCount[myUid] ?: 0,
-                            onClick = { onOpenChat(room.id, room.name) }
+                            onClick = { onOpenChat(room.id, displayRoomName) },
+                            onLongClick = { viewModel.showDeleteRoomDialog(room.id) }
                         )
                         HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
                     }
@@ -202,14 +213,28 @@ fun HomeScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun RoomItem(room: ChatRoom, unreadForMe: Int, onClick: () -> Unit) {
+private fun RoomItem(
+    room: ChatRoom,
+    roomDisplayName: String,
+    unreadForMe: Int,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
     ListItem(
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier.combinedClickable(
+            onClick = onClick,
+            onLongClick = onLongClick
+        ),
         headlineContent = {
-            Text(room.name, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = roomDisplayName, 
+                style = MaterialTheme.typography.titleMedium, 
+                fontWeight = if (unreadForMe > 0) androidx.compose.ui.text.font.FontWeight.Bold else null
+            )
         },
         supportingContent = {
             Text(
@@ -228,7 +253,7 @@ private fun RoomItem(room: ChatRoom, unreadForMe: Int, onClick: () -> Unit) {
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        text = room.name.take(1).uppercase(),
+                        text = roomDisplayName.take(1).uppercase(),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
@@ -251,4 +276,54 @@ private fun RoomItem(room: ChatRoom, unreadForMe: Int, onClick: () -> Unit) {
             }
         }
     )
+}
+
+private fun ChatRoom.displayNameFor(currentUserId: String): String {
+    if (isGroup) return name
+    val otherMemberId = members.firstOrNull { it != currentUserId }
+    val otherName = otherMemberId
+        ?.let { memberNames[it] }
+        ?.takeIf { it.isNotBlank() }
+    return otherName ?: name
+}
+
+val PrimaryGreen = Color(0xFF4CAF50)
+
+@Composable
+fun AvatarWithStatus(imageUrl: String?, name: String, isOnline: Boolean) {
+    Box {
+        Surface(
+            shape = androidx.compose.foundation.shape.CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(40.dp)
+        ) {
+            if (!imageUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(androidx.compose.foundation.shape.CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = name.take(1).uppercase(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+        }
+        if (isOnline) {
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .align(Alignment.BottomEnd)
+                    .background(PrimaryGreen, androidx.compose.foundation.shape.CircleShape)
+                    .border(2.dp, MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.CircleShape)
+            )
+        }
+    }
 }

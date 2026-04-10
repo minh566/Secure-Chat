@@ -11,9 +11,14 @@ import com.securechat.domain.repository.UserRepository
 import com.securechat.domain.usecase.auth.SignOutUseCase
 import com.securechat.domain.usecase.chat.CreateRoomUseCase
 import com.securechat.domain.usecase.chat.GetChatRoomsUseCase
+import com.securechat.ui.common.toSearchResourceState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -45,6 +50,12 @@ class HomeViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    private val searchResultsResource = _uiState
+        .map { it.searchQuery }
+        .toSearchResourceState(viewModelScope) { query ->
+            userRepository.searchUsers(query)
+        }
 
     val currentUser get() = authRepository.currentUser
 
@@ -84,21 +95,19 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun setupSearch() {
-        _uiState.map { it.searchQuery }
-            .distinctUntilChanged()
-            .debounce(300)
-            .onEach { query ->
-                if (query.isBlank()) {
-                    _uiState.update { it.copy(searchResults = emptyList()) }
-                    return@onEach
-                }
-                userRepository.searchUsers(query).collect { result ->
-                    if (result is Resource.Success) {
-                        _uiState.update { it.copy(searchResults = result.data) }
+        viewModelScope.launch {
+            searchResultsResource.collect { result ->
+                when (result) {
+                    is Resource.Success -> _uiState.update {
+                        it.copy(searchResults = result.data)
                     }
+                    is Resource.Error -> _uiState.update {
+                        it.copy(searchResults = emptyList(), errorMessage = result.message)
+                    }
+                    Resource.Loading -> Unit
                 }
             }
-            .launchIn(viewModelScope)
+        }
     }
 
     fun onSearchQueryChange(query: String) = _uiState.update {
