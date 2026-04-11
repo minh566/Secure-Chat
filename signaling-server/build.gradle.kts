@@ -10,6 +10,7 @@ dependencies {
     implementation("io.ktor:ktor-server-content-negotiation-jvm:2.3.12")
     implementation("io.ktor:ktor-serialization-kotlinx-json-jvm:2.3.12")
     implementation("com.google.firebase:firebase-admin:9.4.2")
+    implementation("com.auth0:java-jwt:4.4.0")
     implementation("ch.qos.logback:logback-classic:1.5.6")
 
     testImplementation(kotlin("test"))

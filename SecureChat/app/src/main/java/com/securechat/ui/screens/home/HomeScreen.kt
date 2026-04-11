@@ -1,336 +1,3 @@
-<<<<<<< HEAD
-
-package com.securechat.ui.screens.home
-
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
-import com.securechat.domain.model.ChatRoom
-import java.text.SimpleDateFormat
-import java.util.Locale
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun HomeScreen(
-    onOpenChat: (roomId: String, roomName: String) -> Unit,
-    onSignedOut: () -> Unit,
-    viewModel: HomeViewModel = hiltViewModel()
-) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val user = viewModel.currentUser
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("SecureChat") },
-                actions = {
-                    IconButton(onClick = { viewModel.signOut(onSignedOut) }) {
-                        Icon(Icons.Default.Logout, contentDescription = "Đăng xuất")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = viewModel::showCreateDialog) {
-                Icon(Icons.Default.Add, contentDescription = "Kết bạn")
-            }
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            user?.let {
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.AccountCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(40.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text(it.displayName, style = MaterialTheme.typography.titleMedium)
-                            Text(it.email,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-
-            HorizontalDivider()
-
-            if (uiState.isLoading && uiState.rooms.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else if (uiState.rooms.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.ChatBubbleOutline,
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "Chưa có cuộc trò chuyện nào",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            "Nhấn + để tạo phòng mới",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-            } else {
-                LazyColumn {
-                    items(
-                        items = uiState.rooms,
-                        key   = { it.id }
-                    ) { room ->
-                        val myUid = user?.uid ?: "me"
-                        val displayRoomName = room.displayNameFor(user?.uid.orEmpty())
-                        
-                        RoomItem(
-                            room = room,
-                            roomDisplayName = displayRoomName,
-                            unreadForMe = room.unreadCount[myUid] ?: 0,
-                            onClick = { onOpenChat(room.id, displayRoomName) },
-                            onLongClick = { viewModel.showDeleteRoomDialog(room.id) }
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
-                    }
-                }
-            }
-        }
-
-        if (uiState.showCreateDialog) {
-            AlertDialog(
-                onDismissRequest = viewModel::dismissCreateDialog,
-                title   = { Text("Gửi lời mời kết bạn") },
-                text    = {
-                    Column {
-                        OutlinedTextField(
-                            value = uiState.searchQuery,
-                            onValueChange = viewModel::onSearchQueryChange,
-                            label = { Text("Tên hoặc email") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        if (uiState.searchQuery.isNotBlank()) {
-                            Spacer(Modifier.height(8.dp))
-                            if (uiState.searchResults.isEmpty() && uiState.selectedUser == null) {
-                                Text(
-                                    text = "Không tìm thấy người dùng phù hợp",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            } else {
-                                Surface(
-                                    shape = MaterialTheme.shapes.medium,
-                                    tonalElevation = 1.dp,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column {
-                                        uiState.searchResults.take(5).forEach { item ->
-                                            ListItem(
-                                                modifier = Modifier.clickable { viewModel.onUserSelected(item) },
-                                                headlineContent = { Text(item.displayName) },
-                                                supportingContent = { Text(item.email) },
-                                                leadingContent = {
-                                                    Icon(Icons.Default.Person, contentDescription = null)
-                                                }
-                                            )
-                                            HorizontalDivider()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        uiState.selectedUser?.let {
-                            Text(
-                                text = "Đã chọn: ${it.displayName}",
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                        }
-                        if (uiState.errorMessage != null) {
-                            Text(
-                                text = uiState.errorMessage!!,
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick  = viewModel::sendFriendRequest,
-                        enabled  = uiState.selectedUser != null && !uiState.isCreating
-                    ) { 
-                        if (uiState.isCreating) CircularProgressIndicator(Modifier.size(16.dp))
-                        else Text("Gửi") 
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = viewModel::dismissCreateDialog) { Text("Hủy") }
-                }
-            )
-        }
-    }
-}
-
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun RoomItem(
-    room: ChatRoom,
-    roomDisplayName: String,
-    unreadForMe: Int,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
-) {
-    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-
-    ListItem(
-        modifier = Modifier.combinedClickable(
-            onClick = onClick,
-            onLongClick = onLongClick
-        ),
-        headlineContent = {
-            Text(
-                text = roomDisplayName, 
-                style = MaterialTheme.typography.titleMedium, 
-                fontWeight = if (unreadForMe > 0) androidx.compose.ui.text.font.FontWeight.Bold else null
-            )
-        },
-        supportingContent = {
-            Text(
-                text = room.lastMessage?.content ?: "Chưa có tin nhắn",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        },
-        leadingContent = {
-            Surface(
-                shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = roomDisplayName.take(1).uppercase(),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-        },
-        trailingContent = {
-            Column(horizontalAlignment = Alignment.End) {
-                room.lastMessage?.createdAt?.let {
-                    Text(
-                        timeFormat.format(it),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (unreadForMe > 0) {
-                    Spacer(Modifier.height(4.dp))
-                    Badge { Text(unreadForMe.toString()) }
-                }
-            }
-        }
-    )
-}
-
-private fun ChatRoom.displayNameFor(currentUserId: String): String {
-    if (isGroup) return name
-    val otherMemberId = members.firstOrNull { it != currentUserId }
-    val otherName = otherMemberId
-        ?.let { memberNames[it] }
-        ?.takeIf { it.isNotBlank() }
-    return otherName ?: name
-}
-
-val PrimaryGreen = Color(0xFF4CAF50)
-
-@Composable
-fun AvatarWithStatus(imageUrl: String?, name: String, isOnline: Boolean) {
-    Box {
-        Surface(
-            shape = androidx.compose.foundation.shape.CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.size(40.dp)
-        ) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(androidx.compose.foundation.shape.CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = name.take(1).uppercase(),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-        }
-        if (isOnline) {
-            Box(
-                modifier = Modifier
-                    .size(12.dp)
-                    .align(Alignment.BottomEnd)
-                    .background(PrimaryGreen, androidx.compose.foundation.shape.CircleShape)
-                    .border(2.dp, MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.CircleShape)
-            )
-        }
-    }
-}
-
-=======
 package com.securechat.ui.screens.home
 
 import androidx.compose.foundation.background
@@ -342,20 +9,35 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.securechat.domain.model.ChatRoom
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -377,9 +59,9 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val tokens = homeChatListTokens()
     val user = viewModel.currentUser
     val currentUserId = user?.uid.orEmpty()
-    var searchText by rememberSaveable { mutableStateOf("") }
     var selectedFilter by rememberSaveable { mutableIntStateOf(0) }
 
     val filters = remember {
@@ -390,17 +72,9 @@ fun HomeScreen(
         )
     }
 
-    val filteredRooms = remember(uiState.rooms, searchText, selectedFilter, currentUserId) {
-        val query = searchText.trim().lowercase(Locale.getDefault())
+    val filteredRooms = remember(uiState.rooms, selectedFilter, currentUserId) {
         uiState.rooms
             .filter { filters[selectedFilter].predicate(it, currentUserId) }
-            .filter { room ->
-                if (query.isBlank()) return@filter true
-                val name = room.displayNameFor(currentUserId)
-                val last = room.lastMessage?.content.orEmpty()
-                name.lowercase(Locale.getDefault()).contains(query) ||
-                    last.lowercase(Locale.getDefault()).contains(query)
-            }
     }
 
     val activeContacts = remember(uiState.rooms, currentUserId) {
@@ -427,15 +101,21 @@ fun HomeScreen(
         }
     }
 
+    LaunchedEffect(uiState.pendingNavigation) {
+        val pending = uiState.pendingNavigation ?: return@LaunchedEffect
+        onOpenChat(pending.roomId, pending.roomName)
+        viewModel.clearPendingNavigation()
+    }
+
     Scaffold(
-        containerColor = Color.White,
+        containerColor = tokens.screenBackground,
         topBar = {
-            Surface(color = Color.White) {
+            Surface(color = tokens.screenBackground) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -445,49 +125,68 @@ fun HomeScreen(
                             imageUrl = user?.photoUrl,
                             name = user?.displayName.orEmpty().ifBlank { "N" },
                             isOnline = true,
-                            size = 46.dp
+                            size = 36.dp
                         )
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "ConnectNow",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
+                            text = "securechat",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 23.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = tokens.title,
                             modifier = Modifier.weight(1f)
                         )
-                        HeaderIconButton(icon = Icons.Default.VideoCall, onClick = onOpenSettings)
+                        HeaderIconButton(icon = Icons.Default.Search, onClick = onOpenSettings)
                         Spacer(Modifier.width(6.dp))
                         HeaderIconButton(icon = Icons.Default.Edit, onClick = onOpenSettings)
                     }
 
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
-                        value = searchText,
-                        onValueChange = { searchText = it },
-                        placeholder = { Text("Tìm kiếm nhóm...") },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        value = uiState.friendSearchQuery,
+                        onValueChange = viewModel::onFriendSearchQueryChange,
+                        placeholder = {
+                            Text(
+                                "Tim nguoi dung de ket ban...",
+                                color = tokens.searchText,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = null,
+                                tint = tokens.searchText
+                            )
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         shape = RoundedCornerShape(18.dp),
+                        textStyle = MaterialTheme.typography.bodyMedium,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Color.Transparent,
                             unfocusedBorderColor = Color.Transparent,
-                            focusedContainerColor = Color(0xFFF1F3F8),
-                            unfocusedContainerColor = Color(0xFFF1F3F8)
+                            focusedTextColor = tokens.nameText,
+                            unfocusedTextColor = tokens.nameText,
+                            focusedContainerColor = tokens.searchContainer,
+                            unfocusedContainerColor = tokens.searchContainer
                         )
                     )
 
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(12.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         itemsIndexed(filters) { index, option ->
                             FilterChip(
                                 selected = selectedFilter == index,
                                 onClick = { selectedFilter = index },
                                 label = { Text(option.label) },
+                                shape = RoundedCornerShape(10.dp),
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFF1287FF),
+                                    selectedContainerColor = tokens.accent,
                                     selectedLabelColor = Color.White,
-                                    containerColor = Color(0xFFF0F2F7),
-                                    labelColor = Color(0xFF5D6472)
+                                    containerColor = tokens.searchContainer,
+                                    labelColor = tokens.bodyText
                                 ),
                                 border = FilterChipDefaults.filterChipBorder(
                                     borderColor = Color.Transparent,
@@ -503,7 +202,7 @@ fun HomeScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = viewModel::showCreateDialog,
-                containerColor = Color(0xFF1287FF)
+                containerColor = tokens.accent
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Kết bạn", tint = Color.White)
             }
@@ -515,20 +214,26 @@ fun HomeScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
-            uiState.infoMessage?.let { message ->
-                Surface(
-                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-                    )
+            AnimatedVisibility(
+                visible = uiState.infoMessage != null,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                uiState.infoMessage?.let { message ->
+                    Surface(
+                        color = tokens.infoContainer,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = tokens.infoText,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                        )
+                    }
                 }
             }
 
@@ -566,27 +271,103 @@ fun HomeScreen(
                 Spacer(Modifier.height(8.dp))
             }
 
+            AnimatedVisibility(
+                visible = uiState.friendSearchQuery.isNotBlank(),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Surface(
+                    color = tokens.listCard,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        if (uiState.friendSearchResults.isEmpty()) {
+                            Text(
+                                text = "Khong tim thay nguoi dung phu hop",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.metaText,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        } else {
+                            uiState.friendSearchResults.take(6).forEach { friend ->
+                                ListItem(
+                                    headlineContent = { Text(friend.displayName) },
+                                    supportingContent = { Text(friend.email) },
+                                    leadingContent = {
+                                        AvatarWithStatus(
+                                            imageUrl = friend.photoUrl,
+                                            name = friend.displayName,
+                                            isOnline = friend.isOnline
+                                        )
+                                    },
+                                    trailingContent = {
+                                        val isSending = uiState.sendingFriendRequestUserId == friend.uid
+                                        TextButton(
+                                            onClick = { viewModel.sendFriendRequestTo(friend) },
+                                            enabled = !isSending
+                                        ) {
+                                            if (isSending) {
+                                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                            } else {
+                                                Text("Ket ban")
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+            }
+
             if (activeContacts.isNotEmpty()) {
                 Text(
-                    text = "Đang hoạt động",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color(0xFF4A4F5A)
+                    text = "LIVE NOW",
+                    style = sectionLabelTextStyle(),
+                    color = tokens.sectionLabel,
+                    fontWeight = FontWeight.SemiBold
                 )
                 Spacer(Modifier.height(10.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(activeContacts, key = { it.id }) { contact ->
-                        ActiveContactItem(contact = contact)
+                        ActiveContactItem(
+                            contact = contact,
+                            onClick = { viewModel.openOrCreateDirectChat(contact.id, contact.name) }
+                        )
                     }
                 }
                 Spacer(Modifier.height(14.dp))
-                HorizontalDivider(color = Color(0xFFE7EBF2))
+                HorizontalDivider(color = tokens.divider)
                 Spacer(Modifier.height(12.dp))
             }
 
+            if (filteredRooms.isNotEmpty()) {
+                Text(
+                    text = "FEATURED",
+                    style = sectionLabelTextStyle(),
+                    color = tokens.sectionLabel,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(8.dp))
+                FeaturedRoomCard(
+                    room = filteredRooms.first(),
+                    currentUserId = user?.uid ?: "",
+                    tokens = tokens,
+                    onClick = {
+                        val firstRoom = filteredRooms.first()
+                        onOpenChat(firstRoom.id, firstRoom.displayNameFor(user?.uid.orEmpty()))
+                    }
+                )
+                Spacer(Modifier.height(14.dp))
+            }
+
             Text(
-                text = "Tin nhắn gần đây",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color(0xFF4A4F5A)
+                text = "RECENT CHATS",
+                style = sectionLabelTextStyle(),
+                color = tokens.sectionLabel,
+                fontWeight = FontWeight.SemiBold
             )
             Spacer(Modifier.height(8.dp))
 
@@ -601,25 +382,25 @@ fun HomeScreen(
                             Icons.AutoMirrored.Filled.Message,
                             contentDescription = null,
                             modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            tint = tokens.emptyIcon
                         )
                         Spacer(Modifier.height(16.dp))
                         Text(
                             "Chưa có cuộc trò chuyện nào",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = tokens.bodyText
                         )
                         Text(
                             "Nhan + de ket ban va bat dau tro chuyen",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            color = tokens.metaText
                         )
                     }
                 }
             } else {
                 LazyColumn {
                     items(
-                        items = filteredRooms,
+                        items = filteredRooms.drop(1),
                         key   = { it.id }
                     ) { room ->
                         val displayRoomName = room.displayNameFor(user?.uid.orEmpty())
@@ -627,55 +408,116 @@ fun HomeScreen(
                             room    = room,
                             roomDisplayName = displayRoomName,
                             currentUserId = user?.uid ?: "",
+                            tokens = tokens,
                             onClick = { onOpenChat(room.id, displayRoomName) },
                             onLongClick = { viewModel.showDeleteRoomDialog(room.id) }
                         )
-                        HorizontalDivider(color = Color(0xFFF0F2F6))
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }
         }
 
         if (uiState.showCreateDialog) {
+            val imagePicker = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { pickedUri ->
+                viewModel.onCreateRoomImagePicked(pickedUri?.toString())
+            }
+
             AlertDialog(
                 onDismissRequest = viewModel::dismissCreateDialog,
-                title   = { Text("Gui loi moi ket ban") },
+                title   = { Text("Tao phong chat") },
                 text    = {
                     Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            AvatarWithStatus(
+                                imageUrl = uiState.createRoomImageUri,
+                                name = uiState.createRoomName.ifBlank { "R" },
+                                isOnline = false,
+                                size = 52.dp
+                            )
+                            TextButton(onClick = { imagePicker.launch("image/*") }) {
+                                Icon(Icons.Default.Image, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Dat anh phong")
+                            }
+                            if (uiState.createRoomImageUri != null) {
+                                TextButton(onClick = { viewModel.onCreateRoomImagePicked(null) }) {
+                                    Text("Xoa")
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
                         OutlinedTextField(
-                            value = uiState.searchQuery,
-                            onValueChange = viewModel::onSearchQueryChange,
-                            label = { Text("Tim kiem nguoi dung") },
+                            value = uiState.createRoomName,
+                            onValueChange = viewModel::onCreateRoomNameChange,
+                            label = { Text("Ten phong (tuy chon)") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
 
                         Spacer(Modifier.height(8.dp))
 
-                        uiState.selectedUser?.let { selected ->
+                        OutlinedTextField(
+                            value = uiState.createRoomSearchQuery,
+                            onValueChange = viewModel::onCreateRoomSearchQueryChange,
+                            label = { Text("Them thanh vien") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        if (uiState.selectedRoomMembers.isNotEmpty()) {
                             Text(
-                                text = "Da chon: ${selected.displayName}",
+                                text = "Da chon (${uiState.selectedRoomMembers.size}):",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(6.dp))
+                            AnimatedSelectedMembersRow(
+                                members = uiState.selectedRoomMembers,
+                                onRemoveMember = viewModel::removeMemberFromCreateRoom
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                text = "Nhan vao chip de xoa thanh vien truoc khi tao phong",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = tokens.metaText
+                            )
                         }
 
-                        uiState.searchResults.take(6).forEach { user ->
-                            ListItem(
-                                headlineContent = { Text(user.displayName) },
-                                supportingContent = { Text(user.email) },
-                                leadingContent = {
-                                    AvatarWithStatus(
-                                        imageUrl = user.photoUrl,
-                                        name = user.displayName,
-                                        isOnline = user.isOnline
-                                    )
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .combinedClickable(onClick = { viewModel.onUserSelected(user) })
+                        if (uiState.createRoomFriendCandidates.isEmpty()) {
+                            Text(
+                                text = "Ban can ket ban truoc khi them vao phong",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.metaText,
+                                modifier = Modifier.padding(top = 8.dp)
                             )
+                        } else {
+                            uiState.createRoomSearchResults.take(8).forEach { friend ->
+                                ListItem(
+                                    headlineContent = { Text(friend.displayName) },
+                                    supportingContent = { Text("Ban be") },
+                                    leadingContent = {
+                                        AvatarWithStatus(
+                                            imageUrl = friend.photoUrl,
+                                            name = friend.displayName,
+                                            isOnline = friend.isOnline
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .combinedClickable(onClick = { viewModel.addMemberToCreateRoom(friend) })
+                                )
+                            }
                         }
 
                         if (uiState.errorMessage != null) {
@@ -690,11 +532,11 @@ fun HomeScreen(
                 },
                 confirmButton = {
                     TextButton(
-                        onClick  = viewModel::sendFriendRequest,
-                        enabled  = uiState.selectedUser != null && !uiState.isCreating
+                        onClick  = viewModel::createGroupRoom,
+                        enabled  = uiState.selectedRoomMembers.isNotEmpty() && !uiState.isCreating
                     ) {
                         if (uiState.isCreating) CircularProgressIndicator(Modifier.size(16.dp))
-                        else Text("Gui loi moi")
+                        else Text("Tao phong")
                     }
                 },
                 dismissButton = {
@@ -731,6 +573,7 @@ private fun RoomItem(
     room: ChatRoom,
     roomDisplayName: String,
     currentUserId: String,
+    tokens: HomeChatListTokens,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -742,15 +585,17 @@ private fun RoomItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(tokens.listCard)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 4.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
             AvatarWithStatus(
                 imageUrl = room.photoUrl,
                 name = roomDisplayName,
                 isOnline = isRecent(room.lastMessage?.createdAt),
-                size = 52.dp
+                size = 46.dp
             )
 
             Spacer(Modifier.width(12.dp))
@@ -759,6 +604,7 @@ private fun RoomItem(
                 Text(
                     text = roomDisplayName,
                     style = MaterialTheme.typography.titleMedium,
+                    color = tokens.nameText,
                     fontWeight = if (isUnread) FontWeight.Bold else FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -768,7 +614,7 @@ private fun RoomItem(
                 Text(
                     text = prefix + (room.lastMessage?.content ?: "Chưa có tin nhắn"),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (isUnread && !isMine) Color(0xFF131722) else Color(0xFF687082),
+                    color = if (isUnread && !isMine) tokens.nameText else tokens.bodyText,
                     fontWeight = if (isUnread && !isMine) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -782,7 +628,7 @@ private fun RoomItem(
                     Text(
                         text = formatHomeTimestamp(date, timeFormat),
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF2F95EC),
+                        color = tokens.metaText,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -790,7 +636,7 @@ private fun RoomItem(
                     Spacer(Modifier.height(8.dp))
                     Surface(
                         shape = CircleShape,
-                        color = Color(0xFF1788FF)
+                        color = tokens.badge
                     ) {
                         Text(
                             text = unread.toString(),
@@ -801,6 +647,61 @@ private fun RoomItem(
                     }
                 }
             }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FeaturedRoomCard(
+    room: ChatRoom,
+    currentUserId: String,
+    tokens: HomeChatListTokens,
+    onClick: () -> Unit
+) {
+    val name = room.displayNameFor(currentUserId)
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = tokens.featuredCard,
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AvatarWithStatus(
+                imageUrl = room.photoUrl,
+                name = name,
+                isOnline = isRecent(room.lastMessage?.createdAt),
+                size = 44.dp
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = tokens.nameText,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = room.lastMessage?.content ?: "Let's start chatting...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.bodyText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                contentDescription = null,
+                tint = tokens.accent,
+                modifier = Modifier.size(16.dp)
+            )
+        }
     }
 }
 
@@ -825,73 +726,137 @@ private data class HomeContact(
     val isActive: Boolean
 )
 
-val PrimaryGreen = Color(0xFF2BC85D)
-
 @Composable
 private fun HeaderIconButton(icon: ImageVector, onClick: () -> Unit) {
     IconButton(onClick = onClick) {
-        Icon(icon, contentDescription = null, tint = Color(0xFF1287FF))
-    }
-}
-
-@Composable
-private fun ActiveContactItem(contact: HomeContact) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        AvatarWithStatus(
-            imageUrl = contact.photoUrl,
-            name = contact.name,
-            isOnline = contact.isActive,
-            size = 66.dp
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = contact.name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color(0xFF5E6471),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = homeChatListTokens().headerIcon,
+            modifier = Modifier.size(20.dp)
         )
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun AvatarWithStatus(imageUrl: String?, name: String, isOnline: Boolean, size: Dp = 40.dp) {
-    Box {
-        Surface(
-            shape = CircleShape,
-            color = Color(0xFFEAF0FF),
-            modifier = Modifier.size(size)
+private fun ActiveContactItem(contact: HomeContact, onClick: () -> Unit) {
+    val tokens = homeChatListTokens()
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = tokens.activeNowCard,
+        modifier = Modifier.combinedClickable(onClick = onClick)
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = name.take(1).uppercase(),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color(0xFF3A82F7)
-                    )
-                }
-            }
-        }
-        if (isOnline) {
-            Box(
-                modifier = Modifier
-                    .size((size * 0.28f).coerceAtLeast(10.dp))
-                    .align(Alignment.BottomEnd)
-                    .background(PrimaryGreen, CircleShape)
-                    .border(2.dp, Color.White, CircleShape)
+            AvatarWithStatus(
+                imageUrl = contact.photoUrl,
+                name = contact.name,
+                isOnline = contact.isActive,
+                size = 50.dp
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = contact.name,
+                style = MaterialTheme.typography.bodyMedium,
+                color = tokens.nameText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "Typing...",
+                style = MaterialTheme.typography.labelSmall,
+                color = tokens.metaText
             )
         }
     }
 }
+
+@Composable
+private fun sectionLabelTextStyle(): TextStyle {
+    return MaterialTheme.typography.labelSmall.copy(
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.6.sp
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun AnimatedSelectedMembersRow(
+    members: List<com.securechat.domain.model.User>,
+    onRemoveMember: (String) -> Unit
+) {
+    val animatedMembers = remember { mutableStateListOf<com.securechat.domain.model.User>() }
+    val visibilityStates = remember { mutableStateMapOf<String, MutableTransitionState<Boolean>>() }
+
+    LaunchedEffect(members) {
+        val incomingIds = members.map { it.uid }.toSet()
+
+        members.forEach { member ->
+            val existingIndex = animatedMembers.indexOfFirst { it.uid == member.uid }
+            if (existingIndex >= 0) {
+                animatedMembers[existingIndex] = member
+            } else {
+                animatedMembers.add(member)
+                visibilityStates[member.uid] = MutableTransitionState(false).apply { targetState = true }
+            }
+        }
+
+        animatedMembers
+            .filter { it.uid !in incomingIds }
+            .forEach { removed ->
+                visibilityStates[removed.uid]?.targetState = false
+            }
+    }
+
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(animatedMembers, key = { it.uid }) { member ->
+            val visibleState = visibilityStates.getOrPut(member.uid) {
+                MutableTransitionState(true).apply { targetState = true }
+            }
+
+            if (!visibleState.currentState && !visibleState.targetState) {
+                LaunchedEffect(member.uid) {
+                    animatedMembers.removeAll { it.uid == member.uid }
+                    visibilityStates.remove(member.uid)
+                }
+            }
+
+            AnimatedVisibility(
+                visibleState = visibleState,
+                enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                    scaleIn(initialScale = 0.82f, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
+                exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                    scaleOut(targetScale = 0.82f, animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMedium))
+            ) {
+                AssistChip(
+                    onClick = { onRemoveMember(member.uid) },
+                    label = { Text(member.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingIcon = {
+                        AvatarWithStatus(
+                            imageUrl = member.photoUrl,
+                            name = member.displayName,
+                            isOnline = member.isOnline,
+                            size = 28.dp
+                        )
+                    },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Xoa thanh vien",
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    modifier = Modifier.animateItem()
+                )
+            }
+        }
+    }
+}
+
 
 private fun formatHomeTimestamp(date: Date, timeFormat: SimpleDateFormat): String {
     val now = Calendar.getInstance()
@@ -913,4 +878,3 @@ private fun isRecent(date: Date?): Boolean {
     return System.currentTimeMillis() - date.time < 45 * 60 * 1000
 }
 
->>>>>>> 22c3a84 (feat: redesign core screens and wire settings with biometric app lock)

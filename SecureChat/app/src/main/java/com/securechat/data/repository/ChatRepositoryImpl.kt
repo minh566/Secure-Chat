@@ -1,9 +1,10 @@
-
 package com.securechat.data.repository
 
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
+import androidx.core.net.toUri
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -13,6 +14,7 @@ import com.google.firebase.storage.StorageException
 import com.securechat.data.local.dao.MessageDao
 import com.securechat.data.mapper.toMessage
 import com.securechat.data.mapper.toMessageEntity
+import com.securechat.data.remote.signaling.SignalingApiClient
 import com.securechat.domain.model.*
 import com.securechat.domain.repository.ChatRepository
 import com.securechat.domain.repository.UserRepository
@@ -20,6 +22,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
+import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,8 +34,13 @@ class ChatRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val storage: FirebaseStorage,
     private val messageDao: MessageDao,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val signalingApiClient: SignalingApiClient
 ) : ChatRepository {
+
+    private companion object {
+        const val TAG = "ChatRepositoryImpl"
+    }
 
     override fun getChatRooms(userId: String): Flow<Resource<List<ChatRoom>>> = callbackFlow {
         trySend(Resource.Loading)
@@ -58,7 +66,8 @@ class ChatRepositoryImpl @Inject constructor(
     override suspend fun createRoom(
         name: String,
         memberIds: List<String>,
-        isGroup: Boolean
+        isGroup: Boolean,
+        roomImageUri: String?
     ): Resource<ChatRoom> {
         return try {
             val directMembers = memberIds.distinct()
@@ -89,19 +98,39 @@ class ChatRepositoryImpl @Inject constructor(
                 }
             }
 
+            val roomId = UUID.randomUUID().toString()
+            val uploadedRoomPhoto = roomImageUri
+                ?.takeIf { it.isNotBlank() }
+                ?.let { uploadRoomPhoto(roomId, it) }
+
             val room = ChatRoom(
-                id       = UUID.randomUUID().toString(),
+                id       = roomId,
                 name     = name,
                 members  = directMembers,
                 memberNames = names,
                 memberPhotos = photos,
-                isGroup  = isGroup
+                isGroup  = isGroup,
+                photoUrl = uploadedRoomPhoto
             )
             firestore.collection("rooms").document(room.id).set(room).await()
             Resource.Success(room)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "Tạo phòng thất bại")
         }
+    }
+
+    private suspend fun uploadRoomPhoto(roomId: String, roomImageUri: String): String {
+        val source = roomImageUri.toUri()
+        val mimeType = context.contentResolver.getType(source)
+        val extension = when {
+            mimeType?.contains("png", ignoreCase = true) == true -> "png"
+            mimeType?.contains("webp", ignoreCase = true) == true -> "webp"
+            else -> "jpg"
+        }
+        val fileName = "room_avatar_${UUID.randomUUID()}.$extension"
+        val ref = storage.reference.child("rooms/$roomId/$fileName")
+        ref.putFile(source).await()
+        return ref.downloadUrl.await().toString()
     }
 
     override suspend fun getChatRoom(roomId: String): Resource<ChatRoom> {
@@ -184,7 +213,18 @@ class ChatRepositoryImpl @Inject constructor(
 
         remoteFlow.collect { result ->
             if (result is Resource.Success) {
-                messageDao.insertMessages(result.data.map { it.toMessageEntity() })
+                val cachedLocalPaths = messageDao.getMessagesByRoom(roomId)
+                    .firstOrNull()
+                    ?.associate { it.id to it.localCachePath }
+                    .orEmpty()
+
+                val merged = result.data.map { message ->
+                    message.copy(localCachePath = cachedLocalPaths[message.id])
+                }
+
+                messageDao.insertMessages(merged.map { it.toMessageEntity() })
+                emit(Resource.Success(merged))
+                return@collect
             }
             emit(result)
         }
@@ -214,6 +254,13 @@ class ChatRepositoryImpl @Inject constructor(
                 ).await()
 
             messageDao.insertMessage(normalizedMessage.toMessageEntity())
+
+            // Best-effort push notification fanout; never fail message send if push fails.
+            try {
+                notifyNewMessage(normalizedMessage)
+            } catch (_: Exception) {
+                // ignore push failures to avoid blocking message persistence
+            }
             Resource.Success(Unit)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "Gửi tin nhắn thất bại")
@@ -240,12 +287,17 @@ class ChatRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun sendFile(roomId: String, fileUri: String, type: MessageType): Resource<Unit> {
+    override suspend fun sendFile(
+        roomId: String,
+        fileUri: String,
+        type: MessageType,
+        onProgress: (Int) -> Unit
+    ): Resource<Unit> {
         return try {
             val sender = firebaseAuth.currentUser
                 ?: return Resource.Error("Chua dang nhap")
 
-            val uri = runCatching { Uri.parse(fileUri) }
+            val uri = runCatching { fileUri.toUri() }
                 .getOrElse { return Resource.Error("Duong dan file khong hop le") }
 
             val fileName = resolveDisplayName(uri) ?: "file_${System.currentTimeMillis()}"
@@ -264,12 +316,31 @@ class ChatRepositoryImpl @Inject constructor(
             val objectName = "${UUID.randomUUID()}_$safeFileName"
             val storageRef = storage.reference.child("chats/$roomId/files/$objectName")
 
-            storageRef.putFile(uri).await()
-            val downloadUrl = storageRef.downloadUrl.await().toString()
+            onProgress(0)
+            val uploadTask = storageRef.putFile(uri)
+            uploadTask.addOnProgressListener { snapshot ->
+                val total = snapshot.totalByteCount
+                val percent = if (total > 0L) {
+                    ((snapshot.bytesTransferred * 100L) / total).toInt().coerceIn(0, 100)
+                } else {
+                    0
+                }
+                onProgress(percent)
+            }
+            uploadTask.await()
+            onProgress(100)
+            val downloadUrl = runCatching {
+                storageRef.downloadUrl.await().toString()
+            }.getOrElse {
+                // Fallback to gs:// reference when URL token fetch fails transiently.
+                storageRef.toString()
+            }
 
             val now = java.util.Date()
+            val messageId = UUID.randomUUID().toString()
+            val localCachePath = cacheUriToLocalFile(uri, messageId, fileName)
             val message = Message(
-                id = UUID.randomUUID().toString(),
+                id = messageId,
                 roomId = roomId,
                 senderId = sender.uid,
                 senderName = sender.displayName ?: sender.email ?: "Nguoi dung",
@@ -277,39 +348,174 @@ class ChatRepositoryImpl @Inject constructor(
                 type = messageType,
                 fileUrl = downloadUrl,
                 fileName = fileName,
+                localCachePath = localCachePath,
                 deliveredTo = listOf(sender.uid),
                 seenBy = listOf(sender.uid),
                 createdAt = now
             )
 
+            val remoteMessage = message.copy(localCachePath = null)
+
             firestore.collection("rooms")
                 .document(roomId)
                 .collection("messages")
                 .document(message.id)
-                .set(message)
+                .set(remoteMessage)
                 .await()
 
             firestore.collection("rooms")
                 .document(roomId)
                 .update(
                     mapOf(
-                        "lastMessage" to message,
+                        "lastMessage" to remoteMessage,
                         "lastMessage.createdAt" to message.createdAt
                     )
                 ).await()
 
             messageDao.insertMessage(message.toMessageEntity())
+
+            // Notify room members that a new attachment message is available.
+            try {
+                notifyNewMessage(message)
+            } catch (_: Exception) {
+                // ignore push failures to avoid blocking message persistence
+            }
             Resource.Success(Unit)
         } catch (e: StorageException) {
             val errorMessage = when (e.errorCode) {
                 StorageException.ERROR_RETRY_LIMIT_EXCEEDED,
                 StorageException.ERROR_CANCELED -> "Tai file that bai do ket noi, vui long thu lai"
+                StorageException.ERROR_OBJECT_NOT_FOUND -> "Khong doc duoc tep da chon, vui long chon lai"
                 StorageException.ERROR_QUOTA_EXCEEDED -> "Vuot gioi han luu tru"
                 else -> e.localizedMessage ?: "Tai file that bai"
             }
             Resource.Error(errorMessage, e)
         } catch (e: Exception) {
             Resource.Error(e.localizedMessage ?: "Gui file that bai", e)
+        }
+    }
+
+    override suspend fun cacheAttachment(roomId: String, message: Message): Resource<Message> {
+        val existingPath = message.localCachePath
+        if (!existingPath.isNullOrBlank() && File(existingPath).exists()) {
+            return Resource.Success(message)
+        }
+
+        val fileUrl = message.fileUrl
+            ?: return Resource.Error("Tep khong ton tai tren server")
+
+        return try {
+            val safeName = (message.fileName ?: "file_${message.id}")
+                .replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val target = File(ensureAttachmentCacheDir(), "${message.id}_$safeName")
+            storage.getReferenceFromUrl(fileUrl).getFile(target).await()
+
+            val updated = message.copy(localCachePath = target.absolutePath)
+            messageDao.insertMessage(updated.toMessageEntity())
+            Resource.Success(updated)
+        } catch (e: StorageException) {
+            val errorMessage = when (e.errorCode) {
+                StorageException.ERROR_OBJECT_NOT_FOUND -> "Tep khong ton tai tren server hoac da bi xoa"
+                StorageException.ERROR_RETRY_LIMIT_EXCEEDED,
+                StorageException.ERROR_CANCELED -> "Tai tep that bai do ket noi"
+                else -> e.localizedMessage ?: "Khong the tai tep"
+            }
+            Resource.Error(errorMessage, e)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "Khong the luu cache tep", e)
+        }
+    }
+
+    private suspend fun notifyNewMessage(message: Message) {
+        val room = when (val roomResult = getChatRoom(message.roomId)) {
+            is Resource.Success -> roomResult.data
+            else -> return
+        }
+
+        val recipients = room.members
+            .filter { it.isNotBlank() && it != message.senderId }
+            .distinct()
+
+        if (recipients.isEmpty()) return
+
+        val roomName = room.name.ifBlank { message.senderName }
+        val previewContent = when (message.type) {
+            MessageType.IMAGE -> "Da gui 1 anh"
+            MessageType.FILE -> "Da gui 1 tep"
+            else -> message.content
+        }
+
+        val pushed = signalingApiClient.pushNewMessage(
+            roomId = message.roomId,
+            roomName = roomName,
+            senderId = message.senderId,
+            senderName = message.senderName,
+            content = previewContent,
+            recipientIds = recipients
+        )
+
+        if (pushed) {
+            Log.i(
+                TAG,
+                "pushNewMessage success roomId=${message.roomId} recipients=${recipients.size} type=${message.type}"
+            )
+        } else {
+            Log.e(
+                TAG,
+                "pushNewMessage failed roomId=${message.roomId} recipients=${recipients.size} type=${message.type}"
+            )
+        }
+    }
+
+    override suspend fun setMessageReaction(
+        roomId: String,
+        messageId: String,
+        userId: String,
+        emoji: String
+    ): Resource<Unit> {
+        if (emoji.isBlank()) return Resource.Error("Emoji khong hop le")
+        return try {
+            val messageRef = firestore.collection("rooms")
+                .document(roomId)
+                .collection("messages")
+                .document(messageId)
+
+            messageRef.update("reactions.$userId", emoji).await()
+
+            val localMessage = messageDao.getMessagesByRoom(roomId)
+                .firstOrNull()
+                ?.firstOrNull { it.id == messageId }
+                ?.toMessage()
+                ?: return Resource.Success(Unit)
+
+            val updated = localMessage.copy(reactions = localMessage.reactions + (userId to emoji))
+            messageDao.insertMessage(updated.toMessageEntity())
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "Cap nhat reaction that bai")
+        }
+    }
+
+    override suspend fun removeMessageReaction(roomId: String, messageId: String, userId: String): Resource<Unit> {
+        return try {
+            val messageRef = firestore.collection("rooms")
+                .document(roomId)
+                .collection("messages")
+                .document(messageId)
+
+            messageRef.update("reactions.$userId", FieldValue.delete()).await()
+
+            val localMessage = messageDao.getMessagesByRoom(roomId)
+                .firstOrNull()
+                ?.firstOrNull { it.id == messageId }
+                ?.toMessage()
+                ?: return Resource.Success(Unit)
+
+            val updated = localMessage.copy(reactions = localMessage.reactions - userId)
+            messageDao.insertMessage(updated.toMessageEntity())
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.localizedMessage ?: "Xoa reaction that bai")
         }
     }
 
@@ -356,6 +562,27 @@ class ChatRepositoryImpl @Inject constructor(
             "mp4", "mov" -> "video/mp4"
             else -> null
         }
+    }
+
+    private fun cacheUriToLocalFile(sourceUri: Uri, messageId: String, fileName: String): String? {
+        return runCatching {
+            val safeName = fileName.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val target = File(ensureAttachmentCacheDir(), "${messageId}_$safeName")
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                target.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            } ?: return null
+            target.absolutePath
+        }.getOrNull()
+    }
+
+    private fun ensureAttachmentCacheDir(): File {
+        val dir = File(context.cacheDir, "chat_attachments")
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        return dir
     }
 
     override suspend fun deleteChatRoom(roomId: String): Resource<Unit> {

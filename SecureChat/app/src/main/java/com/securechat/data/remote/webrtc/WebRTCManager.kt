@@ -1,4 +1,3 @@
-
 package com.securechat.data.remote.webrtc
 
 import android.content.Context
@@ -17,6 +16,7 @@ import kotlinx.coroutines.flow.collectLatest
 import org.webrtc.*
 import org.webrtc.audio.JavaAudioDeviceModule
 import org.webrtc.Camera1Enumerator
+import org.webrtc.CameraVideoCapturer
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -37,6 +37,8 @@ class WebRTCManager @Inject constructor(
     private var localVideoTrack: VideoTrack? = null
     private var localAudioTrack: AudioTrack? = null
     private var videoCapturer: VideoCapturer? = null
+    private var cameraEnumerator: CameraEnumerator? = null
+    private var currentCameraDeviceName: String? = null
     private var surfaceHelper: SurfaceTextureHelper? = null
     private var remoteVideoTrack: VideoTrack? = null
     private val pendingRemoteIceCandidates = mutableListOf<IceCandidate>()
@@ -47,6 +49,9 @@ class WebRTCManager @Inject constructor(
     val iceConnectionState: StateFlow<PeerConnection.IceConnectionState?> = _iceConnectionState.asStateFlow()
     private val _peerConnectionState = MutableStateFlow<PeerConnection.PeerConnectionState?>(null)
     val peerConnectionState: StateFlow<PeerConnection.PeerConnectionState?> = _peerConnectionState.asStateFlow()
+    private val audioManager: AudioManager by lazy {
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
 
     private var eglBase: EglBase = EglBase.create()
     val eglContext: EglBase.Context
@@ -105,7 +110,6 @@ class WebRTCManager @Inject constructor(
             .createPeerConnectionFactory()
             
         // Thiết lập chế độ Audio cho Android
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         configureInCallAudio(audioManager)
     }
 
@@ -177,6 +181,8 @@ class WebRTCManager @Inject constructor(
             val camera2Capturer = camera2Enumerator.createCapturer(camera2Name, null)
             if (camera2Capturer != null) {
                 Log.i(TAG, "Using Camera2 capturer: $camera2Name")
+                cameraEnumerator = camera2Enumerator
+                currentCameraDeviceName = camera2Name
                 return camera2Capturer
             }
         }
@@ -188,6 +194,8 @@ class WebRTCManager @Inject constructor(
             val camera1Capturer = camera1Enumerator.createCapturer(camera1Name, null)
             if (camera1Capturer != null) {
                 Log.i(TAG, "Using Camera1 capturer fallback: $camera1Name")
+                cameraEnumerator = camera1Enumerator
+                currentCameraDeviceName = camera1Name
                 return camera1Capturer
             }
         }
@@ -198,6 +206,44 @@ class WebRTCManager @Inject constructor(
 
     fun setAudioEnabled(enabled: Boolean) { localAudioTrack?.setEnabled(enabled) }
     fun setVideoEnabled(enabled: Boolean) { localVideoTrack?.setEnabled(enabled) }
+
+    fun setSpeakerEnabled(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (enabled) {
+                val speaker = audioManager.availableCommunicationDevices.firstOrNull {
+                    it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                }
+                if (speaker != null) {
+                    audioManager.setCommunicationDevice(speaker)
+                }
+            } else {
+                audioManager.clearCommunicationDevice()
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            run {
+                audioManager.isSpeakerphoneOn = enabled
+            }
+        }
+    }
+
+    fun switchCamera() {
+        val capturer = videoCapturer as? CameraVideoCapturer ?: return
+        val enumerator = cameraEnumerator ?: return
+        val current = currentCameraDeviceName ?: return
+        val target = enumerator.deviceNames.firstOrNull { it != current } ?: return
+
+        capturer.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
+            override fun onCameraSwitchDone(isFrontCamera: Boolean) {
+                currentCameraDeviceName = target
+                Log.i(TAG, "Camera switched to $target, front=$isFrontCamera")
+            }
+
+            override fun onCameraSwitchError(errorDescription: String?) {
+                Log.e(TAG, "switchCamera failed: $errorDescription")
+            }
+        }, target)
+    }
 
     private suspend fun createPeerConnection(sessionId: String): PeerConnection {
         val turnCredentials = runCatching { signalingApiClient.fetchTurnCredentials() }
@@ -253,15 +299,36 @@ class WebRTCManager @Inject constructor(
         // ═══ Cấu hình Transceiver: SEND_RECV (rõ ràng) ═══
         val sendRecvInit = RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV)
         
-        localVideoTrack?.let { 
-            pc.addTransceiver(it, sendRecvInit)
-            Log.i(TAG, "addTransceiver[video] SEND_RECV")
+        if (localVideoTrack != null) {
+            pc.addTransceiver(localVideoTrack, sendRecvInit)
+            Log.i(TAG, "addTransceiver[video-track] SEND_RECV")
+        } else {
+            pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, sendRecvInit)
+            Log.w(TAG, "addTransceiver[video-media] SEND_RECV (no local video track yet)")
         }
-        localAudioTrack?.let { 
-            pc.addTransceiver(it, sendRecvInit)
-            Log.i(TAG, "addTransceiver[audio] SEND_RECV")
+
+        if (localAudioTrack != null) {
+            pc.addTransceiver(localAudioTrack, sendRecvInit)
+            Log.i(TAG, "addTransceiver[audio-track] SEND_RECV")
+        } else {
+            pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, sendRecvInit)
+            Log.w(TAG, "addTransceiver[audio-media] SEND_RECV (no local audio track yet)")
         }
+        enforceSendRecvTransceivers(pc)
         return pc
+    }
+
+    private fun enforceSendRecvTransceivers(pc: PeerConnection) {
+        pc.transceivers.forEachIndexed { index, transceiver ->
+            val before = transceiver.direction
+            runCatching {
+                transceiver.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV
+            }
+            Log.i(
+                TAG,
+                "transceiver[$index] mid=${transceiver.mid} media=${transceiver.mediaType} direction=$before -> ${transceiver.direction}"
+            )
+        }
     }
 
     private fun buildIceServers(turnCredentials: TurnCredentials?): List<PeerConnection.IceServer> {
@@ -295,12 +362,23 @@ class WebRTCManager @Inject constructor(
                 override fun onCreateSuccess(sdp: SessionDescription?) {
                     sdp?.let {
                         logSdpMediaSections("local-offer", it.description)
-                        peerConnection?.setLocalDescription(SdpObserverAdapter(), it)
-                        scope.launch { 
-                            Log.d(TAG, "Sending OFFER from $localIceRole")
-                            callRepository.sendOffer(sessionId, it.description) 
-                        }
+                        peerConnection?.setLocalDescription(object : SdpObserverAdapter() {
+                            override fun onSetSuccess() {
+                                scope.launch {
+                                    Log.d(TAG, "Sending OFFER from $localIceRole")
+                                    callRepository.sendOffer(sessionId, it.description)
+                                }
+                            }
+
+                            override fun onSetFailure(error: String?) {
+                                Log.e(TAG, "setLocalDescription(offer) failed: $error")
+                            }
+                        }, it)
                     }
+                }
+
+                override fun onCreateFailure(error: String?) {
+                    Log.e(TAG, "createOffer failed: $error")
                 }
             }, constraints)
 
@@ -357,11 +435,18 @@ class WebRTCManager @Inject constructor(
             override fun onCreateSuccess(sdp: SessionDescription?) {
                 sdp?.let {
                     logSdpMediaSections("local-answer", it.description)
-                    peerConnection?.setLocalDescription(SdpObserverAdapter(), it)
-                    scope.launch { 
-                        Log.d(TAG, "Sending ANSWER from $localIceRole")
-                        callRepository.sendAnswer(sessionId, it.description) 
-                    }
+                    peerConnection?.setLocalDescription(object : SdpObserverAdapter() {
+                        override fun onSetSuccess() {
+                            scope.launch {
+                                Log.d(TAG, "Sending ANSWER from $localIceRole")
+                                callRepository.sendAnswer(sessionId, it.description)
+                            }
+                        }
+
+                        override fun onSetFailure(error: String?) {
+                            Log.e(TAG, "setLocalDescription(answer) failed: $error")
+                        }
+                    }, it)
                 }
             }
 
@@ -382,15 +467,23 @@ class WebRTCManager @Inject constructor(
                         return@forEach
                     }
 
-                    val parts = payload.split("|", limit = 3)
-                    val mLineIndex = parts.getOrNull(1)?.toIntOrNull()
-                    if (parts.size == 3 && mLineIndex != null) {
-                        val sdpMid = parts[0].takeIf { it.isNotBlank() && it != "null" }
-                        val candidate = IceCandidate(sdpMid, mLineIndex, parts[2])
+                    val firstSep = payload.indexOf('|')
+                    val secondSep = if (firstSep >= 0) payload.indexOf('|', firstSep + 1) else -1
+                    if (firstSep <= 0 || secondSep <= firstSep) {
+                        Log.w(TAG, "  ✗ Invalid ICE[$remoteIceRole] candidate format: $payload")
+                        return@forEach
+                    }
+
+                    val midRaw = payload.substring(0, firstSep)
+                    val mLineIndex = payload.substring(firstSep + 1, secondSep).toIntOrNull()
+                    val candidateSdp = payload.substring(secondSep + 1)
+                    if (mLineIndex != null && candidateSdp.isNotBlank()) {
+                        val sdpMid = midRaw.takeIf { it.isNotBlank() && it != "null" }
+                        val candidate = IceCandidate(sdpMid, mLineIndex, candidateSdp)
                         val pc = peerConnection
                         
                         // Log candidate details
-                        Log.d(TAG, "  ✦ ICE[$remoteIceRole] mid='$sdpMid' index=$mLineIndex sdp=${parts[2].take(40)}...")
+                        Log.d(TAG, "  ✦ ICE[$remoteIceRole] mid='$sdpMid' index=$mLineIndex sdp=${candidateSdp.take(40)}...")
                         
                         if (pc?.remoteDescription == null) {
                             pendingRemoteIceCandidates.add(candidate)
@@ -466,6 +559,8 @@ class WebRTCManager @Inject constructor(
             remoteVideoSink?.let { sink ->
                 track.addSink(sink)
             }
+        } else {
+            Log.d(TAG, "attachRemoteTrack ignored non-video track=${track?.kind()}")
         }
     }
 
@@ -518,7 +613,6 @@ class WebRTCManager @Inject constructor(
             }
             
             // Trả lại âm thanh bình thường
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             resetAudioRouting(audioManager)
         } catch (e: Exception) {}
     }
@@ -567,4 +661,3 @@ open class SdpObserverAdapter : SdpObserver {
     override fun onCreateFailure(error: String?) {}
     override fun onSetFailure(error: String?) {}
 }
-

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="firebase_database_url" translatable="false">https://chat-b02b3-default-rtdb.asia-southeast1.firebasedatabase.app</string>
     <string name="gcm_defaultSenderId" translatable="false">22631607500</string>
     <string name="google_api_key" translatable="false">AIzaSyBmACwD-gn2JfEcdcg9A5_tRkXhQDuhPp0</string>
     <string name="google_app_id" translatable="false">1:22631607500:android:f8286b909c4770f48b6669</string>

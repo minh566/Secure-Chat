@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-=======
 package com.securechat.ui.screens.settings
 
 import androidx.compose.foundation.border
@@ -25,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.securechat.BuildConfig
 import com.securechat.data.local.preferences.ThemeMode
 import com.securechat.ui.screens.home.AvatarWithStatus
 import com.securechat.ui.screens.home.PrimaryGreen
@@ -41,6 +40,7 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showThemeDialog by rememberSaveable { mutableStateOf(false) }
+    var showFcmTokenDialog by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -124,6 +124,26 @@ fun SettingsScreen(
                 onClick = onOpenSecurity
             )
 
+            if (BuildConfig.DEBUG) {
+                SettingsSectionTitle("DEBUG")
+                SettingsItem(
+                    icon = Icons.Default.BugReport,
+                    title = "Hiện FCM token thiết bị",
+                    subtitle = "Dùng để test thông báo 2 máy",
+                    trailing = {
+                        if (uiState.isFetchingFcmToken) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null)
+                        }
+                    },
+                    onClick = {
+                        showFcmTokenDialog = true
+                        viewModel.loadFcmTokenForDebug()
+                    }
+                )
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
 
             Button(
@@ -185,6 +205,48 @@ fun SettingsScreen(
                     }
                 )
             }
+
+            if (showFcmTokenDialog) {
+                AlertDialog(
+                    onDismissRequest = {
+                        showFcmTokenDialog = false
+                        viewModel.clearFcmDebugDialog()
+                    },
+                    title = { Text("FCM token hiện tại") },
+                    text = {
+                        when {
+                            uiState.isFetchingFcmToken -> {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Text("Đang lấy token...")
+                                }
+                            }
+                            !uiState.fcmDebugError.isNullOrBlank() -> {
+                                Text(uiState.fcmDebugError!!, color = MaterialTheme.colorScheme.error)
+                            }
+                            else -> {
+                                Text(uiState.fcmToken ?: "<empty>")
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showFcmTokenDialog = false
+                            viewModel.clearFcmDebugDialog()
+                        }) {
+                            Text("Đóng")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = viewModel::loadFcmTokenForDebug) {
+                            Text("Lấy lại")
+                        }
+                    }
+                )
+            }
         }
     }
 }
@@ -235,4 +297,3 @@ fun SettingsItem(
         )
     }
 }
->>>>>>> 22c3a84 (feat: redesign core screens and wire settings with biometric app lock)

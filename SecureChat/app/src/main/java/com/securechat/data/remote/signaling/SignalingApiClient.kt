@@ -1,4 +1,3 @@
-
 package com.securechat.data.remote.signaling
 
 import com.securechat.domain.model.CallSession
@@ -16,6 +15,77 @@ class SignalingApiClient @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val baseHttpUrl: String
 ) {
+
+    fun pushNewMessage(
+        roomId: String,
+        roomName: String,
+        senderId: String,
+        senderName: String,
+        content: String,
+        recipientIds: List<String>
+    ): Boolean {
+        if (recipientIds.isEmpty()) return true
+
+        val body = JSONObject()
+            .put("type", "NEW_MESSAGE")
+            .put("roomId", roomId)
+            .put("roomName", roomName)
+            .put("senderId", senderId)
+            .put("senderName", senderName)
+            .put("content", content)
+            .put("recipientIds", JSONArray(recipientIds))
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+
+        val request = Request.Builder()
+            .url("$baseHttpUrl/notifications/new-message")
+            .post(body)
+            .build()
+
+        return executeSuccess(request)
+    }
+
+    fun fetchSfuAccessToken(
+        roomName: String,
+        identity: String,
+        participantName: String?
+    ): SfuAccessToken? {
+        val body = JSONObject()
+            .put("roomName", roomName)
+            .put("identity", identity)
+            .put("participantName", participantName)
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+
+        val request = Request.Builder()
+            .url("$baseHttpUrl/sfu/token")
+            .post(body)
+            .build()
+
+        return runCatching {
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val raw = response.body?.string().orEmpty()
+                if (raw.isBlank()) return null
+                val json = JSONObject(raw)
+                val wsUrl = json.optString("wsUrl").trim()
+                val token = json.optString("token").trim()
+                val responseRoomName = json.optString("roomName").trim()
+                val responseIdentity = json.optString("identity").trim()
+                val expiresInSeconds = json.optLong("expiresInSeconds", 0L)
+                if (wsUrl.isBlank() || token.isBlank() || responseRoomName.isBlank() || responseIdentity.isBlank()) {
+                    return null
+                }
+                SfuAccessToken(
+                    wsUrl = wsUrl,
+                    token = token,
+                    roomName = responseRoomName,
+                    identity = responseIdentity,
+                    expiresInSeconds = expiresInSeconds
+                )
+            }
+        }.getOrNull()
+    }
 
     fun createCall(session: CallSession): Boolean {
         val body = JSONObject()
@@ -100,4 +170,12 @@ class SignalingApiClient @Inject constructor(
         }
     }
 }
+
+data class SfuAccessToken(
+    val wsUrl: String,
+    val token: String,
+    val roomName: String,
+    val identity: String,
+    val expiresInSeconds: Long
+)
 

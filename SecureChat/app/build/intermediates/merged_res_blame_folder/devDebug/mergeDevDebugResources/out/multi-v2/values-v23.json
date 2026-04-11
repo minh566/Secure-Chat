@@ -4,7 +4,7 @@
             "outputFile": "com.securechat.app-mergeDevDebugResources-78:/values-v23/values-v23.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\admin\\.gradle\\caches\\8.9\\transforms\\6942d24f686af1dc9106faf70efac02d\\transformed\\appcompat-1.6.1\\res\\values-v23\\values-v23.xml",
+                    "source": "C:\\Users\\admin\\.gradle\\caches\\8.9\\transforms\\4f80a8cef24eccf4e73c0ea37bb26079\\transformed\\appcompat-1.6.1\\res\\values-v23\\values-v23.xml",
                     "from": {
                         "startLines": "2,3,4,5,6,20,34,35,36,39,43,44,45,46",
                         "startColumns": "4,4,4,4,4,4,4,4,4,4,4,4,4,4",

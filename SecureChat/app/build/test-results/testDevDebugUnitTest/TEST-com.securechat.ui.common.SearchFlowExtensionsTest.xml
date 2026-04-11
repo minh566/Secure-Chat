@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.securechat.ui.common.SearchFlowExtensionsTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-04-10T07:39:02" hostname="DESKTOP-HL4PHQ6" time="0.162">
-  <properties/>
-  <testcase name="toSearchResourceState_happyPath_emitsSearchResultAfterDebounce" classname="com.securechat.ui.common.SearchFlowExtensionsTest" time="0.153"/>
-  <testcase name="toSearchResourceState_failure_previousQueryCancelledByFlatMapLatest" classname="com.securechat.ui.common.SearchFlowExtensionsTest" time="0.009"/>
-  <system-out><![CDATA[]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>

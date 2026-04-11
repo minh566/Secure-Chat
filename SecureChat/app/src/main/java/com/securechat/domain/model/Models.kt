@@ -1,4 +1,3 @@
-
 package com.securechat.domain.model
 
 import java.util.Date
@@ -50,9 +49,11 @@ data class Message(
     val type: MessageType = MessageType.TEXT,
     val fileUrl: String? = null,
     val fileName: String? = null,
+    val localCachePath: String? = null,
     val isRead: Boolean = false,
     val deliveredTo: List<String> = emptyList(),
     val seenBy: List<String> = emptyList(),
+    val reactions: Map<String, String> = emptyMap(),
     val createdAt: Date = Date()
 )
 
@@ -86,4 +87,3 @@ sealed class Resource<out T> {
     data class Error(val message: String, val cause: Throwable? = null) : Resource<Nothing>()
     object Loading : Resource<Nothing>()
 }
-

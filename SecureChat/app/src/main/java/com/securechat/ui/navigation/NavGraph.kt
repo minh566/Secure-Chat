@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-=======
 package com.securechat.ui.navigation
 
 import androidx.compose.runtime.Composable
@@ -11,6 +9,7 @@ import com.securechat.ui.screens.auth.LoginScreen
 import com.securechat.ui.screens.auth.RegisterScreen
 import com.securechat.ui.screens.call.VideoCallScreen
 import com.securechat.ui.screens.chat.ChatScreen
+import com.securechat.ui.screens.chat.ImageGalleryScreen
 import com.securechat.ui.screens.home.HomeScreen
 import com.securechat.ui.screens.profile.EditProfileScreen
 import com.securechat.ui.screens.settings.PrivacySettingsScreen
@@ -32,10 +31,23 @@ sealed class Screen(val route: String) {
             "chat/$roomId/${java.net.URLEncoder.encode(roomName, "UTF-8")}"
     }
 
-    data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}/{peerId}") {
-        fun go(sessionId: String, calleeName: String, isCaller: Boolean, peerId: String) =
-            "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller/${java.net.URLEncoder.encode(peerId, "UTF-8")}"
+    data object Call : Screen("call/{sessionId}/{calleeName}/{isCaller}/{peerId}/{isGroup}") {
+        fun go(sessionId: String, calleeName: String, isCaller: Boolean, peerId: String, isGroup: Boolean) =
+            "call/$sessionId/${java.net.URLEncoder.encode(calleeName, "UTF-8")}/$isCaller/${java.net.URLEncoder.encode(peerId, "UTF-8")}/$isGroup"
     }
+
+    data object ImageGallery : Screen("image_gallery/{token}") {
+        fun go(token: String) = "image_gallery/$token"
+    }
+}
+
+private data class ImageGalleryPayload(
+    val imageSources: List<String>,
+    val startIndex: Int
+)
+
+private object ImageGalleryStore {
+    var payload: ImageGalleryPayload? = null
 }
 
 @Composable
@@ -125,12 +137,35 @@ fun SecureChatNavGraph(
             ChatScreen(
                 roomName = roomName,
                 onBack   = { navController.popBackStack() },
-                onStartVideoCall = { calleeId ->
+                onStartVideoCall = { calleeId, isGroup ->
                     val sessionId = java.util.UUID.randomUUID().toString()
-                    navController.navigate(Screen.Call.go(sessionId, roomName, true, calleeId))
+                    navController.navigate(Screen.Call.go(sessionId, roomName, true, calleeId, isGroup))
+                },
+                onOpenImageViewer = { imageSources, startIndex ->
+                    ImageGalleryStore.payload = ImageGalleryPayload(
+                        imageSources = imageSources,
+                        startIndex = startIndex
+                    )
+                    navController.navigate(Screen.ImageGallery.go(System.currentTimeMillis().toString()))
                 },
                 authRepository = authRepository
             )
+        }
+
+        composable(
+            route = Screen.ImageGallery.route,
+            arguments = listOf(navArgument("token") { type = NavType.StringType })
+        ) {
+            val payload = ImageGalleryStore.payload
+            if (payload == null) {
+                navController.popBackStack()
+            } else {
+                ImageGalleryScreen(
+                    imageSources = payload.imageSources,
+                    startIndex = payload.startIndex,
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
 
         composable(
@@ -139,17 +174,19 @@ fun SecureChatNavGraph(
                 navArgument("sessionId")  { type = NavType.StringType },
                 navArgument("calleeName") { type = NavType.StringType },
                 navArgument("isCaller")   { type = NavType.BoolType },
-                navArgument("peerId")     { type = NavType.StringType }
+                navArgument("peerId")     { type = NavType.StringType },
+                navArgument("isGroup")    { type = NavType.BoolType }
             )
         ) { backStackEntry ->
             val calleeNameRaw = backStackEntry.arguments?.getString("calleeName") ?: ""
             val calleeName = java.net.URLDecoder.decode(calleeNameRaw, "UTF-8")
+            val isGroup = backStackEntry.arguments?.getBoolean("isGroup") ?: false
 
             VideoCallScreen(
                 calleeName  = calleeName,
+                isGroupCall = isGroup,
                 onCallEnded = { navController.popBackStack() }
             )
         }
     }
 }
->>>>>>> 22c3a84 (feat: redesign core screens and wire settings with biometric app lock)

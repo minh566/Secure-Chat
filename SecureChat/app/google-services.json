@@ -1,13 +1,14 @@
 {
   "project_info": {
-    "project_number": "273663276674",
-    "project_id": "chat-47f66",
-    "storage_bucket": "chat-47f66.firebasestorage.app"
+    "project_number": "22631607500",
+    "firebase_url": "https://chat-b02b3-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "chat-b02b3",
+    "storage_bucket": "chat-b02b3.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:273663276674:android:79cf10fdc9569539ade69b",
+        "mobilesdk_app_id": "1:22631607500:android:f8286b909c4770f48b6669",
         "android_client_info": {
           "package_name": "com.securechat"
         }
@@ -15,7 +16,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyC_sFGnUbiacEJ3RiONf_vO0_D4_XOAvg8"
+          "current_key": "AIzaSyBmACwD-gn2JfEcdcg9A5_tRkXhQDuhPp0"
         }
       ],
       "services": {

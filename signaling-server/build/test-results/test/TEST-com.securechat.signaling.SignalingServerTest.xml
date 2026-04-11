@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.securechat.signaling.SignalingServerTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-04-10T19:19:15" hostname="DESKTOP-HL4PHQ6" time="0.808">
+  <properties/>
+  <testcase name="turnCredentialProvider_failure_missingEnv_returnsNull" classname="com.securechat.signaling.SignalingServerTest" time="0.023"/>
+  <testcase name="liveKitTokenFactory_happyPath_containsJoinGrant" classname="com.securechat.signaling.SignalingServerTest" time="0.205"/>
+  <testcase name="sfuConfigProvider_happyPath_returnsConfig" classname="com.securechat.signaling.SignalingServerTest" time="0.003"/>
+  <testcase name="healthEndpointReturnsOk" classname="com.securechat.signaling.SignalingServerTest" time="0.574"/>
+  <testcase name="offlineCallInvitePolicy_failure_whenAlreadyDelivered_returnsFalse" classname="com.securechat.signaling.SignalingServerTest" time="0.001"/>
+  <testcase name="offlineCallInvitePolicy_happyPath_offerUndelivered_returnsTrue" classname="com.securechat.signaling.SignalingServerTest" time="0.0"/>
+  <testcase name="turnCredentialProvider_happyPath_returnsCredentials" classname="com.securechat.signaling.SignalingServerTest" time="0.001"/>
+  <testcase name="callInvitePayloadFactory_happyPath_containsRequiredKeys" classname="com.securechat.signaling.SignalingServerTest" time="0.001"/>
+  <testcase name="newMessagePayloadFactory_happyPath_containsRequiredKeys" classname="com.securechat.signaling.SignalingServerTest" time="0.0"/>
+  <system-out><![CDATA[02:19:15.998 [DefaultDispatcher-worker-1 @call-context#2] INFO ktor.test -- No ktor.deployment.watch patterns specified, automatic reload is not active.
+02:19:16.058 [DefaultDispatcher-worker-1 @call-context#2] INFO ktor.test -- Application started in 0.07 seconds.
+02:19:16.060 [DefaultDispatcher-worker-2 @coroutine#4] INFO ktor.test -- Responding at http://localhost:80
+02:19:16.061 [DefaultDispatcher-worker-2 @coroutine#4] INFO ktor.test -- Responding at https://localhost:443
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

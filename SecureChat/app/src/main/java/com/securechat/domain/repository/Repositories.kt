@@ -1,4 +1,3 @@
-
 package com.securechat.domain.repository
 
 import com.securechat.domain.model.*
@@ -6,7 +5,12 @@ import kotlinx.coroutines.flow.Flow
 
 interface ChatRepository {
     fun getChatRooms(userId: String): Flow<Resource<List<ChatRoom>>>
-    suspend fun createRoom(name: String, memberIds: List<String>, isGroup: Boolean): Resource<ChatRoom>
+    suspend fun createRoom(
+        name: String,
+        memberIds: List<String>,
+        isGroup: Boolean,
+        roomImageUri: String? = null
+    ): Resource<ChatRoom>
     suspend fun getChatRoom(roomId: String): Resource<ChatRoom>
     suspend fun addMembersToRoom(roomId: String, memberIds: List<String>): Resource<Unit>
     suspend fun deleteChatRoom(roomId: String): Resource<Unit> // THÊM DÒNG NÀY
@@ -14,7 +18,15 @@ interface ChatRepository {
     fun getMessages(roomId: String): Flow<Resource<List<Message>>>
     suspend fun sendMessage(message: Message): Resource<Unit>
     suspend fun deleteMessage(roomId: String, messageId: String): Resource<Unit>
-    suspend fun sendFile(roomId: String, fileUri: String, type: MessageType): Resource<Unit>
+    suspend fun sendFile(
+        roomId: String,
+        fileUri: String,
+        type: MessageType,
+        onProgress: (Int) -> Unit = {}
+    ): Resource<Unit>
+    suspend fun cacheAttachment(roomId: String, message: Message): Resource<Message>
+    suspend fun setMessageReaction(roomId: String, messageId: String, userId: String, emoji: String): Resource<Unit>
+    suspend fun removeMessageReaction(roomId: String, messageId: String, userId: String): Resource<Unit>
     suspend fun markAsRead(roomId: String, userId: String): Resource<Unit>
     suspend fun markMessagesDelivered(roomId: String, userId: String): Resource<Unit>
     suspend fun markMessagesSeen(roomId: String, userId: String): Resource<Unit>

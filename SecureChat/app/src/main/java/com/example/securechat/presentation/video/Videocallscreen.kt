@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.*
 import androidx.compose.ui.unit.*
 import com.example.securechat.presentation.auth.PrimaryBlue
 import com.example.securechat.presentation.home.GroupAvatar
+import com.example.securechat.viewmodel.VideoCallViewModel
 import kotlinx.coroutines.delay
 
 // ── Participant model ─────────────────────────────────────────────────────────
@@ -58,7 +59,7 @@ fun VideoCallScreen(
     roomId: String,
     groupName: String,
     onEndCall: () -> Unit,
-    viewModel: com.example.connectnow.viewmodel.VideoCallViewModel
+    viewModel: VideoCallViewModel
 ) {
     val uiState      by viewModel.uiState.collectAsState()
     var showControls  by remember { mutableStateOf(true) }

@@ -1,4 +1,3 @@
-
 package com.securechat.ui.screens.call
 
 import androidx.lifecycle.SavedStateHandle
@@ -222,6 +221,16 @@ class CallViewModel @Inject constructor(
         val off = !_uiState.value.isCameraOff
         _uiState.update { it.copy(isCameraOff = off) }
         webRTCManager.setVideoEnabled(!off)
+    }
+
+    fun toggleSpeaker() {
+        val speakerOn = !_uiState.value.isSpeakerOn
+        _uiState.update { it.copy(isSpeakerOn = speakerOn) }
+        webRTCManager.setSpeakerEnabled(speakerOn)
+    }
+
+    fun switchCamera() {
+        webRTCManager.switchCamera()
     }
 
     fun endCall() {

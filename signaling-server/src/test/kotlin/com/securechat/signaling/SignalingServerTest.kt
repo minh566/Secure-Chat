@@ -1,5 +1,7 @@
 package com.securechat.signaling
 
+import com.auth0.jwt.JWT
+import com.auth0.jwt.algorithms.Algorithm
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.server.testing.*
@@ -72,6 +74,27 @@ class SignalingServerTest {
     }
 
     @Test
+    fun newMessagePayloadFactory_happyPath_containsRequiredKeys() {
+        val payload = NewMessagePayloadFactory.build(
+            NewMessagePushRequestDto(
+                roomId = "room-1",
+                roomName = "Tan",
+                senderId = "userA",
+                senderName = "Tan",
+                content = "hello",
+                recipientIds = listOf("userB")
+            )
+        )
+
+        assertEquals("NEW_MESSAGE", payload["type"])
+        assertEquals("room-1", payload["roomId"])
+        assertEquals("Tan", payload["roomName"])
+        assertEquals("userA", payload["senderId"])
+        assertEquals("Tan", payload["senderName"])
+        assertEquals("hello", payload["content"])
+    }
+
+    @Test
     fun offlineCallInvitePolicy_failure_whenAlreadyDelivered_returnsFalse() {
         val shouldSend = OfflineCallInvitePolicy.shouldSendFallback(
             eventType = "offer",
@@ -89,6 +112,46 @@ class SignalingServerTest {
         )
 
         assertTrue(shouldSend)
+    }
+
+    @Test
+    fun sfuConfigProvider_happyPath_returnsConfig() {
+        val env = mapOf(
+            "LIVEKIT_WS_URL" to "wss://livekit.example.com",
+            "LIVEKIT_API_KEY" to "lk_key",
+            "LIVEKIT_API_SECRET" to "lk_secret",
+            "LIVEKIT_TOKEN_TTL_SECONDS" to "120"
+        )
+
+        val config = SfuConfigProvider.fromEnvironment(env)
+
+        assertNotNull(config)
+        assertEquals("wss://livekit.example.com", config.wsUrl)
+        assertEquals(120L, config.tokenTtlSeconds)
+    }
+
+    @Test
+    fun liveKitTokenFactory_happyPath_containsJoinGrant() {
+        val token = LiveKitTokenFactory.createJoinToken(
+            apiKey = "lk_key",
+            apiSecret = "lk_secret",
+            roomName = "room-alpha",
+            identity = "user-1",
+            participantName = "Tan",
+            ttlSeconds = 300
+        )
+
+        val verifier = JWT.require(Algorithm.HMAC256("lk_secret"))
+            .withIssuer("lk_key")
+            .withAudience("livekit")
+            .build()
+        val decoded = verifier.verify(token)
+
+        assertEquals("user-1", decoded.subject)
+        assertEquals("Tan", decoded.getClaim("name").asString())
+        val video = decoded.getClaim("video").asMap() as Map<String, Any?>
+        assertEquals("room-alpha", video["room"])
+        assertEquals(true, video["roomJoin"])
     }
 }
 

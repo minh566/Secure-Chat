@@ -1,4 +1,4 @@
-package com.example.connectnow.viewmodel
+package com.example.securechat.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope

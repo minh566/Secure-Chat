@@ -1,4 +1,3 @@
-
 package com.securechat.data.repository
 
 import com.google.firebase.auth.FirebaseAuth
@@ -280,4 +279,3 @@ class UserRepositoryImpl @Inject constructor(
         }
     }
 }
-

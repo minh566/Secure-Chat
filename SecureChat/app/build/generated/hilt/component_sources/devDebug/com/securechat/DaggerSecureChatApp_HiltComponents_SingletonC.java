@@ -462,6 +462,7 @@ public final class DaggerSecureChatApp_HiltComponents_SingletonC {
       MainActivity_MembersInjector.injectAuthRepository(instance, singletonCImpl.authRepositoryImplProvider.get());
       MainActivity_MembersInjector.injectCallRepository(instance, singletonCImpl.callRepositoryImplProvider.get());
       MainActivity_MembersInjector.injectAppSettings(instance, singletonCImpl.appSettingsProvider.get());
+      MainActivity_MembersInjector.injectFirebaseAuth(instance, singletonCImpl.provideFirebaseAuthProvider.get());
       return instance;
     }
   }
@@ -815,7 +816,7 @@ public final class DaggerSecureChatApp_HiltComponents_SingletonC {
           return (T) new WebRTCManager(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule), singletonCImpl.callRepositoryImplProvider.get(), singletonCImpl.provideSignalingApiClientProvider.get());
 
           case 9: // com.securechat.data.repository.ChatRepositoryImpl 
-          return (T) new ChatRepositoryImpl(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule), singletonCImpl.provideFirebaseAuthProvider.get(), singletonCImpl.provideFirestoreProvider.get(), singletonCImpl.provideFirebaseStorageProvider.get(), singletonCImpl.provideMessageDaoProvider.get(), singletonCImpl.userRepositoryImplProvider.get());
+          return (T) new ChatRepositoryImpl(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule), singletonCImpl.provideFirebaseAuthProvider.get(), singletonCImpl.provideFirestoreProvider.get(), singletonCImpl.provideFirebaseStorageProvider.get(), singletonCImpl.provideMessageDaoProvider.get(), singletonCImpl.userRepositoryImplProvider.get(), singletonCImpl.provideSignalingApiClientProvider.get());
 
           case 10: // com.google.firebase.storage.FirebaseStorage 
           return (T) FirebaseModule_ProvideFirebaseStorageFactory.provideFirebaseStorage();

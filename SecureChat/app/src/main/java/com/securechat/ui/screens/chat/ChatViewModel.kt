@@ -1,11 +1,12 @@
-
 package com.securechat.ui.screens.chat
 
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.securechat.domain.model.ChatRoom
 import com.securechat.domain.model.Message
+import com.securechat.domain.model.MessageType
 import com.securechat.domain.model.Resource
 import com.securechat.domain.model.User
 import com.securechat.domain.repository.AuthRepository
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
 
 data class ChatUiState(
@@ -37,6 +39,11 @@ data class ChatUiState(
     val isAddingMembers: Boolean = false,
     val errorMessage: String? = null,
     val isSending: Boolean = false,
+    val isUploadingAttachment: Boolean = false,
+    val uploadProgressPercent: Int = 0,
+    val pendingOpenAttachment: Message? = null,
+    val brokenAttachmentMessageIds: Set<String> = emptySet(),
+    val resendTargetType: MessageType? = null,
     val chatRoom: ChatRoom? = null
 )
 
@@ -51,6 +58,10 @@ class ChatViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
+
+    companion object {
+        val SUPPORTED_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "🔥")
+    }
 
     private val roomId: String = checkNotNull(savedStateHandle["roomId"])
     private val currentUserId: String get() = authRepository.currentUser?.uid.orEmpty()
@@ -164,15 +175,178 @@ class ChatViewModel @Inject constructor(
         val user = authRepository.currentUser ?: return
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isSending = true, inputText = "") }
-            sendMessageUseCase(
+            _uiState.update { it.copy(isSending = true, inputText = "", errorMessage = null) }
+            val result = sendMessageUseCase(
                 roomId     = roomId,
                 senderId   = user.uid,
                 senderName = user.displayName,
                 content    = content
             )
-            _uiState.update { it.copy(isSending = false) }
+            _uiState.update {
+                when (result) {
+                    is Resource.Error -> it.copy(isSending = false, inputText = content, errorMessage = result.message)
+                    else -> it.copy(isSending = false)
+                }
+            }
         }
+    }
+
+    fun sendLike() {
+        if (_uiState.value.isSending || _uiState.value.isUploadingAttachment) return
+        val user = authRepository.currentUser ?: return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSending = true, errorMessage = null) }
+            val result = sendMessageUseCase(
+                roomId = roomId,
+                senderId = user.uid,
+                senderName = user.displayName,
+                content = "👍"
+            )
+            _uiState.update {
+                if (result is Resource.Error) it.copy(isSending = false, errorMessage = result.message)
+                else it.copy(isSending = false)
+            }
+        }
+    }
+
+    fun sendAttachment(fileUri: Uri, type: MessageType) {
+        if (_uiState.value.isSending || _uiState.value.isUploadingAttachment) return
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isUploadingAttachment = true,
+                    uploadProgressPercent = 0,
+                    errorMessage = null
+                )
+            }
+            val result = chatRepository.sendFile(
+                roomId = roomId,
+                fileUri = fileUri.toString(),
+                type = type,
+                onProgress = { percent ->
+                    _uiState.update { current ->
+                        current.copy(uploadProgressPercent = percent.coerceIn(0, 100))
+                    }
+                }
+            )
+            _uiState.update {
+                if (result is Resource.Error) {
+                    it.copy(
+                        isUploadingAttachment = false,
+                        uploadProgressPercent = 0,
+                        resendTargetType = null,
+                        errorMessage = result.message
+                    )
+                } else {
+                    it.copy(
+                        isUploadingAttachment = false,
+                        uploadProgressPercent = 0,
+                        resendTargetType = null
+                    )
+                }
+            }
+        }
+    }
+
+    fun openAttachment(message: Message) {
+        if (message.type != MessageType.IMAGE && message.type != MessageType.FILE) return
+
+        viewModelScope.launch {
+            if (message.id in _uiState.value.brokenAttachmentMessageIds) {
+                if (message.senderId == currentUserId) {
+                    requestResendAttachment(message.type)
+                }
+                return@launch
+            }
+
+            val cachedPath = message.localCachePath
+            if (!cachedPath.isNullOrBlank() && File(cachedPath).exists()) {
+                _uiState.update { it.copy(pendingOpenAttachment = message) }
+                return@launch
+            }
+
+            when (val result = chatRepository.cacheAttachment(roomId, message)) {
+                is Resource.Success -> {
+                    _uiState.update {
+                        it.copy(
+                            pendingOpenAttachment = result.data,
+                            brokenAttachmentMessageIds = it.brokenAttachmentMessageIds - message.id
+                        )
+                    }
+                }
+
+                is Resource.Error -> {
+                    val isMissingObject = isMissingObjectError(result.message)
+                    _uiState.update {
+                        it.copy(
+                            errorMessage = if (isMissingObject) {
+                                if (message.senderId == currentUserId) {
+                                    "Tep da mat tren server. Vui long gui lai tep"
+                                } else {
+                                    "Tep nay da bi xoa tren server"
+                                }
+                            } else {
+                                result.message
+                            },
+                            brokenAttachmentMessageIds = if (isMissingObject) {
+                                it.brokenAttachmentMessageIds + message.id
+                            } else {
+                                it.brokenAttachmentMessageIds
+                            }
+                        )
+                    }
+
+                    if (isMissingObject && message.senderId == currentUserId) {
+                        requestResendAttachment(message.type)
+                    }
+                }
+
+                Resource.Loading -> Unit
+            }
+        }
+    }
+
+    private fun isMissingObjectError(message: String): Boolean {
+        val normalized = message.lowercase()
+        return normalized.contains("khong ton tai") ||
+            normalized.contains("object") ||
+            normalized.contains("not exist")
+    }
+
+    fun consumePendingOpenAttachment() {
+        _uiState.update { it.copy(pendingOpenAttachment = null) }
+    }
+
+    fun requestResendAttachment(type: MessageType) {
+        _uiState.update { it.copy(resendTargetType = type) }
+    }
+
+    fun consumeResendRequest() {
+        _uiState.update { it.copy(resendTargetType = null) }
+    }
+
+    fun toggleReaction(message: Message, emoji: String) {
+        val user = authRepository.currentUser ?: return
+        if (emoji !in SUPPORTED_REACTIONS) return
+
+        viewModelScope.launch {
+            val current = message.reactions[user.uid]
+            val result = if (current == emoji) {
+                chatRepository.removeMessageReaction(roomId, message.id, user.uid)
+            } else {
+                chatRepository.setMessageReaction(roomId, message.id, user.uid, emoji)
+            }
+
+            if (result is Resource.Error) {
+                _uiState.update { it.copy(errorMessage = result.message) }
+            }
+        }
+    }
+
+    fun consumeErrorMessage() {
+        _uiState.update { it.copy(errorMessage = null) }
     }
     
     fun getCalleeId(): String? {
@@ -206,4 +380,3 @@ class ChatViewModel @Inject constructor(
         }
     }
 }
-

@@ -1,9 +1,10 @@
-<<<<<<< HEAD
-=======
 package com.securechat
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -40,8 +41,14 @@ import dagger.hilt.android.AndroidEntryPoint
 import java.util.concurrent.Executor
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -53,16 +60,29 @@ class MainActivity : FragmentActivity() {
         val peerId: String
     )
 
+    private data class OpenChatNavigation(
+        val roomId: String,
+        val roomName: String
+    )
+
     @Inject lateinit var authRepository: AuthRepository
     @Inject lateinit var callRepository: CallRepository
     @Inject lateinit var appSettings: AppSettings
+    @Inject lateinit var firebaseAuth: FirebaseAuth
     private lateinit var mainExecutor: Executor
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val authStateListener = FirebaseAuth.AuthStateListener {
+        syncFcmTokenIfLoggedIn()
+    }
 
     private val incomingCallEvents = MutableSharedFlow<IncomingCallNavigation>(extraBufferCapacity = 1)
+    private val openChatEvents = MutableSharedFlow<OpenChatNavigation>(extraBufferCapacity = 1)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mainExecutor = ContextCompat.getMainExecutor(this)
+        requestNotificationPermissionIfNeeded()
+        syncFcmTokenIfLoggedIn()
 
         setContentView(ComposeView(this).apply {
             setContent {
@@ -77,8 +97,8 @@ class MainActivity : FragmentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val navController = rememberNavController()
                     
-                    val handledIncomingSessionId = androidx.compose.runtime.remember {
-                        androidx.compose.runtime.mutableStateOf<String?>(null)
+                    val handledIncomingSessionId = remember {
+                        mutableStateOf<String?>(null)
                     }
 
                     // Lắng nghe cuộc gọi đến Realtime
@@ -91,7 +111,7 @@ class MainActivity : FragmentActivity() {
 
                                     handledIncomingSessionId.value = it.id
                                     navController.navigate(
-                                        Screen.Call.go(it.id, "Cuộc gọi đến", false, it.callerId)
+                                        Screen.Call.go(it.id, "Cuộc gọi đến", false, it.callerId, false)
                                     ) {
                                         launchSingleTop = true
                                     }
@@ -103,6 +123,7 @@ class MainActivity : FragmentActivity() {
                     // Điều hướng khi người dùng bấm notification ACCEPT_CALL.
                     LaunchedEffect(Unit) {
                         parseIncomingCallIntent(intent)?.let { incomingCallEvents.tryEmit(it) }
+                        parseOpenChatIntent(intent)?.let { openChatEvents.tryEmit(it) }
 
                         incomingCallEvents.collectLatest { payload ->
                             val shouldNavigate = handledIncomingSessionId.value != payload.sessionId
@@ -110,8 +131,16 @@ class MainActivity : FragmentActivity() {
 
                             handledIncomingSessionId.value = payload.sessionId
                             navController.navigate(
-                                Screen.Call.go(payload.sessionId, payload.callerName, false, payload.peerId)
+                                Screen.Call.go(payload.sessionId, payload.callerName, false, payload.peerId, false)
                             ) {
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+
+                    LaunchedEffect(Unit) {
+                        openChatEvents.collectLatest { payload ->
+                            navController.navigate(Screen.Chat.go(payload.roomId, payload.roomName)) {
                                 launchSingleTop = true
                             }
                         }
@@ -177,10 +206,21 @@ class MainActivity : FragmentActivity() {
         })
     }
 
+    override fun onStart() {
+        super.onStart()
+        firebaseAuth.addAuthStateListener(authStateListener)
+    }
+
+    override fun onStop() {
+        firebaseAuth.removeAuthStateListener(authStateListener)
+        super.onStop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         parseIncomingCallIntent(intent)?.let { incomingCallEvents.tryEmit(it) }
+        parseOpenChatIntent(intent)?.let { openChatEvents.tryEmit(it) }
     }
 
     private fun parseIncomingCallIntent(intent: Intent?): IncomingCallNavigation? {
@@ -189,6 +229,35 @@ class MainActivity : FragmentActivity() {
         val callerName = intent.getStringExtra("callerName") ?: "Cuộc gọi đến"
         val peerId = intent.getStringExtra("peerId") ?: return null
         return IncomingCallNavigation(sessionId = sessionId, callerName = callerName, peerId = peerId)
+    }
+
+    private fun parseOpenChatIntent(intent: Intent?): OpenChatNavigation? {
+        if (intent?.getStringExtra("action") != "OPEN_CHAT") return null
+        val roomId = intent.getStringExtra("roomId") ?: return null
+        val roomName = intent.getStringExtra("roomName") ?: "Chat"
+        return OpenChatNavigation(roomId = roomId, roomName = roomName)
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2001)
+        }
+    }
+
+    private fun syncFcmTokenIfLoggedIn() {
+        val currentUser = authRepository.currentUser ?: return
+        FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { token ->
+                if (token.isNullOrBlank()) return@addOnSuccessListener
+                ioScope.launch {
+                    authRepository.updateFcmToken(token)
+                }
+            }
     }
 
     private fun authenticateWithFaceOrBiometric(
@@ -259,4 +328,3 @@ private fun LockScreen(
         }
     }
 }
->>>>>>> 22c3a84 (feat: redesign core screens and wire settings with biometric app lock)

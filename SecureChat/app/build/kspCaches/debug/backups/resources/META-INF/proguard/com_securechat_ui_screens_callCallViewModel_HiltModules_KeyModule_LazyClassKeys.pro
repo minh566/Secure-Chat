@@ -1,4 +1,0 @@
--keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.auth.AuthViewModel
--keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.auth.AuthViewModel
--keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.call.CallViewModel
--keep,allowobfuscation,allowshrinking class com.securechat.ui.screens.call.CallViewModel

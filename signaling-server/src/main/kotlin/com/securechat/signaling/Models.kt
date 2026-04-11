@@ -40,3 +40,38 @@ data class TurnCredentialsDto(
     val ttl: Long
 )
 
+@Serializable
+data class SfuTokenRequestDto(
+    val roomName: String,
+    val identity: String,
+    val participantName: String? = null
+)
+
+@Serializable
+data class SfuTokenResponseDto(
+    val wsUrl: String,
+    val token: String,
+    val roomName: String,
+    val identity: String,
+    val expiresInSeconds: Long
+)
+
+@Serializable
+data class NewMessagePushRequestDto(
+    val roomId: String,
+    val roomName: String,
+    val senderId: String,
+    val senderName: String,
+    val content: String,
+    val recipientIds: List<String>,
+    val type: String = "NEW_MESSAGE"
+)
+
+@Serializable
+data class NewMessagePushResponseDto(
+    val requested: Int,
+    val sent: Int,
+    val failed: Int,
+    val cleanedInvalidTokens: Int
+)
+

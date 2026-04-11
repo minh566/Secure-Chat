@@ -1,4 +1,3 @@
-
 package com.securechat.di.call
 
 import com.securechat.BuildConfig
@@ -13,14 +12,21 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Named
 import javax.inject.Singleton
 
+internal data class SignalingEndpoints(
+    val httpUrl: String,
+    val wsUrl: String,
+    val sfuWsUrl: String
+)
+
 @Module
 @InstallIn(SingletonComponent::class)
 object SignalingModule {
 
-    private fun endpoints(): Pair<String, String> {
+    private fun endpoints(): SignalingEndpoints {
         return SignalingUrlConfigValidator.validate(
             httpUrl = BuildConfig.SIGNALING_HTTP_URL,
             wsUrl = BuildConfig.SIGNALING_WS_URL,
+            sfuWsUrl = BuildConfig.SFU_WS_URL,
             flavor = BuildConfig.FLAVOR
         )
     }
@@ -36,11 +42,15 @@ object SignalingModule {
 
     @Provides
     @Named("signalingHttpUrl")
-    fun provideSignalingHttpUrl(): String = endpoints().first
+    fun provideSignalingHttpUrl(): String = endpoints().httpUrl
 
     @Provides
     @Named("signalingWsUrl")
-    fun provideSignalingWsUrl(): String = endpoints().second
+    fun provideSignalingWsUrl(): String = endpoints().wsUrl
+
+    @Provides
+    @Named("sfuWsUrl")
+    fun provideSfuWsUrl(): String = endpoints().sfuWsUrl
 
     @Provides
     @Singleton
@@ -58,12 +68,14 @@ object SignalingModule {
 }
 
 internal object SignalingUrlConfigValidator {
-    fun validate(httpUrl: String, wsUrl: String, flavor: String): Pair<String, String> {
+    fun validate(httpUrl: String, wsUrl: String, sfuWsUrl: String, flavor: String): SignalingEndpoints {
         val normalizedHttp = httpUrl.trim()
         val normalizedWs = wsUrl.trim()
+        val normalizedSfuWs = sfuWsUrl.trim()
 
         require(normalizedHttp.isNotBlank()) { "SIGNALING_HTTP_URL must not be blank" }
         require(normalizedWs.isNotBlank()) { "SIGNALING_WS_URL must not be blank" }
+        require(normalizedSfuWs.isNotBlank()) { "SFU_WS_URL must not be blank" }
 
         if (flavor.equals("prod", ignoreCase = true)) {
             require(normalizedHttp.startsWith("https://")) {
@@ -72,9 +84,16 @@ internal object SignalingUrlConfigValidator {
             require(normalizedWs.startsWith("wss://")) {
                 "Production signaling WS URL must use wss"
             }
+            require(normalizedSfuWs.startsWith("wss://")) {
+                "Production SFU URL must use wss"
+            }
         }
 
-        return normalizedHttp to normalizedWs
+        return SignalingEndpoints(
+            httpUrl = normalizedHttp,
+            wsUrl = normalizedWs,
+            sfuWsUrl = normalizedSfuWs
+        )
     }
 }
 

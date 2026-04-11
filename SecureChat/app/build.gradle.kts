@@ -24,14 +24,20 @@ android {
     productFlavors {
         create("dev") {
             dimension = "env"
-            buildConfigField("String", "SIGNALING_HTTP_URL", "\"http://10.0.2.2:8081\"")
-            buildConfigField("String", "SIGNALING_WS_URL", "\"ws://10.0.2.2:8081/ws\"")
+            val signalingDevHost = (project.findProperty("SIGNALING_DEV_HOST") as? String)
+                ?.trim()
+                ?.ifBlank { null }
+                ?: "10.0.2.2"
+            buildConfigField("String", "SIGNALING_HTTP_URL", "\"http://$signalingDevHost:8081\"")
+            buildConfigField("String", "SIGNALING_WS_URL", "\"ws://$signalingDevHost:8081/ws\"")
+            buildConfigField("String", "SFU_WS_URL", "\"wss://livekit-dev.securechat.local\"")
         }
 
         create("prod") {
             dimension = "env"
             buildConfigField("String", "SIGNALING_HTTP_URL", "\"https://signal.securechat.example.com\"")
             buildConfigField("String", "SIGNALING_WS_URL", "\"wss://signal.securechat.example.com/ws\"")
+            buildConfigField("String", "SFU_WS_URL", "\"wss://livekit.securechat.example.com\"")
         }
     }
 
