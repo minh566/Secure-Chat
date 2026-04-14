@@ -45,11 +45,10 @@
 |-----------|-------|-----------|
 | 🔐 Đăng ký / Đăng nhập | Email/Password và Google Sign-In | ✅ Hoàn thành |
 | 💬 Nhắn tin thời gian thực | Chat 1-1 và nhóm, độ trễ < 500ms | ✅ Hoàn thành |
-| 📎 Gửi file & hình ảnh | Upload lên Firebase Storage | ✅ Hoàn thành |
 | ✅ Trạng thái đã đọc | Seen receipt cho từng tin nhắn | ✅ Hoàn thành |
 | 🎥 Gọi video 1-1 | Kết nối WebRTC P2P | ✅ Hoàn thành |
-| 👥 Gọi video nhóm | Tối đa 4 người, kiến trúc Mesh | ✅ Hoàn thành |
-| 🔔 Thông báo đẩy | FCM — hoạt động kể cả khi app bị đóng | ✅ Hoàn thành |
+| 👥 Nhắn tin nhóm | Tối đa 4 người, kiến trúc Mesh | ✅ Hoàn thành |
+| 🔔 Thông báo cuộc gọi | ✅ Hoàn thành |
 | 😊 Thả cảm xúc | React với emoji vào tin nhắn | ✅ Hoàn thành |
 | 🌙 Dark Mode | Hỗ trợ chế độ tối | ✅ Hoàn thành |
 | 👤 Quản lý hồ sơ | Chỉnh sửa tên, ảnh đại diện | ✅ Hoàn thành |
