@@ -260,7 +260,6 @@ val iceServers = listOf(
 - 🏠 **Home** — Danh sách cuộc trò chuyện, badge tin chưa đọc
 - 💬 **Chat** — Lịch sử tin nhắn, gửi file/ảnh, seen receipt, emoji reaction
 - 📹 **Video Call** — Grid layout đa người, điều khiển camera/micro/loa
-- 📲 **Incoming Call** — Full-screen intent kể cả khi app bị đóng
 - 👥 **Tạo nhóm** — Chọn thành viên, đặt tên và ảnh nhóm
 - ⚙️ **Cài đặt** — Dark mode, thông báo, chỉnh sửa hồ sơ
 
